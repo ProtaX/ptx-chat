@@ -30,7 +30,11 @@ struct ChatMsgHdr {
   size_t buf_len;
 };
 
+// TODO(me): pool for message buffers
 struct ChatMsg {
+  ChatMsg() noexcept: buf(nullptr) {}
+  ~ChatMsg() { if (buf) free(buf); }
+
   ChatMsgHdr hdr;
   uint8_t* buf;
 };
