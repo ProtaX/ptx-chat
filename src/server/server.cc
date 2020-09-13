@@ -172,12 +172,10 @@ void PtxChatServer::ReceiveMessages() {
 
       if (buf_len != 0) {
         msg->buf = reinterpret_cast<uint8_t*>(malloc(buf_len));
-        uint8_t raw_data[MAX_MSG_BUFFER_SIZE];
-        if (recv(client_fd, raw_data, buf_len, 0) < 0) {
+        if (recv(client_fd, msg->buf, buf_len, 0) < 0) {
           perror("recv ChatMsg");
           return;
         }
-        memcpy(msg->buf, raw_data, buf_len);
       }
       std::lock_guard<std::mutex> lc_proc_msg(process_msg_thread_.mtx);
       client_msgs_.push_front(std::move(msg));
