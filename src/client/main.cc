@@ -3,5 +3,5 @@
 int main() {
   ptxchat::PtxChatClient client;
   client.LogIn("assbuster");
-  client.SendPublicMsg("hello, wordl!");
+  client.SendMsg("hello, wordl!");
 }
