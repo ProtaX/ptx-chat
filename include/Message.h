@@ -23,8 +23,8 @@ enum class MsgType {
 
 struct ChatMsgHdr {
   MsgType type;
-  uint32_t src_ip;
-  uint16_t src_port;
+  uint32_t src_ip;             /**< Filled by server */
+  uint16_t src_port;           /**< Filled by server */
   char from[MAX_NICKNAME_LEN];
   char to[MAX_NICKNAME_LEN];
   size_t buf_len;

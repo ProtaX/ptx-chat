@@ -5,7 +5,6 @@
 
 #include <thread>
 #include <mutex>
-#include <condition_variable>
 #include <memory>
 #include <deque>
 #include <vector>
@@ -50,7 +49,7 @@ class PtxChatServer {
  private:
   uint32_t ip_;             /**< Server ip (default = 0.0.0.0) */
   uint16_t port_;           /**< Server port (default = 8080) */
-  int listen_q_size_;  /**< Max amount of clients in listen queue */
+  int listen_q_size_;       /**< Max amount of clients in listen queue */
   int socket_;              /**< Server socket (blocking) */
 
   std::ofstream log_file_;
@@ -60,13 +59,14 @@ class PtxChatServer {
   const int MAX_LISTEN_Q_SIZE = 1000;
   const uint32_t SERVER_TICK = 100;         /**< Client handler thread wakes up every 100 ms */
 
-  struct ThreadState accept_conn_thread_;
-  struct ThreadState receive_msg_thread_;
-  struct ThreadState process_msg_thread_;
+  struct ThreadState accept_conn_thread_;  /**< mutex is not used */
+  struct ThreadState receive_msg_thread_;  /**< protects clients */
+  struct ThreadState process_msg_thread_;  /**< protects client messages */
 
+  // TODO(me) may be unique_ptr that owned by a thread?
   std::deque<void*> gui_event_q_;
-  std::deque<std::unique_ptr<ChatMsg>> client_msgs_;  /**< Client messages */
-  std::vector<struct Client> clients_;  /**< Clients */
+  std::deque<std::unique_ptr<struct ChatMsg>> client_msgs_;  /**< Client messages, protected by process_msg_thread_ */
+  std::vector<struct Client> clients_;                /**< Clients, protected by receive_msg_tread_ */
 
   void InitSocket();
   void InitLog();
@@ -90,7 +90,7 @@ class PtxChatServer {
    */
   void ProcessRegMsg(std::unique_ptr<struct ChatMsg>&& msg);
   /**
-   * Unregister
+   * These functions are not under any mutex
    */
   void ProcessUnregMsg(std::unique_ptr<struct ChatMsg>&& msg);
   void ProcessPrivateMsg(std::unique_ptr<struct ChatMsg>&& msg);
