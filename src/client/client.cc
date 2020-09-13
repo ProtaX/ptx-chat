@@ -19,6 +19,7 @@ PtxChatClient::PtxChatClient() noexcept {
   server_port_ = DEFAULT_SERVER_PORT;
   nick_ = "";
   socket_ = 0;
+  InitLog();
 }
 
 PtxChatClient::PtxChatClient(const std::string& ip, uint16_t port) noexcept {
@@ -28,6 +29,7 @@ PtxChatClient::PtxChatClient(const std::string& ip, uint16_t port) noexcept {
   server_port_ = port;
   nick_ = "";
   socket_ = 0;
+  InitLog();
 }
 
 void PtxChatClient::LogIn(const std::string& nick) {
@@ -58,7 +60,7 @@ void PtxChatClient::LogIn(const std::string& nick) {
   msg->hdr.buf_len = 0;
 
   /* Send sync message */
-  SendServerMsg(std::move(msg));
+  SendMsg(std::move(msg));
 
   /* Handle messages async */
   msg_in_thread_.stop = 0;
@@ -70,29 +72,66 @@ void PtxChatClient::LogIn(const std::string& nick) {
   msg_out_thread_.thread.detach();
 }
 
+void PtxChatClient::SendMsg(const std::string& text) {
+  std::unique_ptr<struct ChatMsg> msg = std::make_unique<struct ChatMsg>();
+  strcpy(msg->hdr.from, nick_.c_str());
+  msg->hdr.type = MsgType::PUBLIC_DATA;
+  msg->hdr.buf_len = text.length();
+  msg->buf = reinterpret_cast<uint8_t*>(malloc(msg->hdr.buf_len));
+  std::lock_guard<std::mutex> lc_msg_out(msg_out_thread_.mtx);
+  msg_out_.push_front(std::move(msg));
+}
+
+void PtxChatClient::SendMsgTo(const std::string& to, const std::string& text) {
+  std::unique_ptr<struct ChatMsg> msg = std::make_unique<struct ChatMsg>();
+  strcpy(msg->hdr.from, nick_.c_str());
+  strcpy(msg->hdr.to, to.c_str());
+  msg->hdr.type = MsgType::PRIVATE_DATA;
+  msg->hdr.buf_len = text.length();
+  msg->buf = reinterpret_cast<uint8_t*>(malloc(msg->hdr.buf_len));
+  std::lock_guard<std::mutex> lc_msg_out(msg_out_thread_.mtx);
+  msg_out_.push_front(std::move(msg));
+}
+
+void PtxChatClient::SendMessages() {
+  while (!msg_out_thread_.stop) {
+    std::this_thread::sleep_for(std::chrono::milliseconds(MSG_THREAD_SLEEP));
+    msg_in_thread_.mtx.lock();
+    std::unique_ptr<struct ChatMsg> msg = std::move(msg_in_.back());
+    msg_in_.pop_back();
+    msg_in_thread_.mtx.unlock();
+
+    SendMsg(std::move(msg));
+  }
+}
+
 void PtxChatClient::ReceiveMessages() {
   while (!msg_in_thread_.stop) {
-    std::this_thread::sleep_for(std::chrono::milliseconds(100));
+    std::this_thread::sleep_for(std::chrono::milliseconds(MSG_THREAD_SLEEP));
     uint8_t* buf[sizeof(struct ChatMsgHdr)];
     ssize_t bytes_in = recv(socket_, buf, sizeof(buf), 0);
     if (bytes_in < 0) {
       // TODO(me): handle recv errors
-      perror("recv");
+      perror("ReceiveMessages: recv ChatMsgHdr");
       continue;
     }
 
     // TODO(me): возможно, нужно будет сделать очерель событий для GUI, но сейчас сообщения будут просто выводиться в лог
-  }
-  
-}
+    std::unique_ptr<struct ChatMsg> msg = std::make_unique<struct ChatMsg>();
+    msg->hdr = *reinterpret_cast<struct ChatMsgHdr*>(buf);
+    size_t buf_len = msg->hdr.buf_len;
+    if (buf_len > MAX_MSG_BUFFER_SIZE)
+      continue;
+    msg->buf = reinterpret_cast<uint8_t*>(malloc(buf_len));
+    if (buf_len != 0) {
+      if (recv(socket_, msg->buf, buf_len, 0) < 0) {
+        perror("ReceiveMessages: recv buf");
+        continue;
+      }
+    }
 
-void PtxChatClient::SendServerMsg(std::unique_ptr<struct ChatMsg>&& msg) {
-  const void* buf = &msg->hdr;
-  size_t len = sizeof(struct ChatMsgHdr);
-
-  if (send(socket_, buf, len, 0) < 0) {
-    perror("SendServerMsg: send");
-    return;
+    std::string text = std::string(reinterpret_cast<char*>(msg->buf));
+    Log(text);
   }
 }
 
@@ -105,28 +144,35 @@ void PtxChatClient::LogOut() {
   msg->hdr.type = MsgType::UNREGISTER;
   msg->hdr.buf_len = 0;
 
-  SendServerMsg(std::move(msg));
+  SendMsg(std::move(msg));
 
   shutdown(socket_, SHUT_RDWR);
   close(socket_);
   socket_ = 0;
 }
 
-void PtxChatClient::SendPublicMsg(const std::string& text) {
-  struct ChatMsgHdr hdr;
-  strcpy(hdr.from, nick_.c_str());
-  hdr.type = MsgType::PUBLIC_DATA;
-  hdr.buf_len = text.length();
-  
-  if (send(socket_, &hdr, sizeof(hdr), 0) < 0) {
-    perror("SendPublicMsg: send ChatMsgHdr");
+void PtxChatClient::SendMsg(std::unique_ptr<struct ChatMsg>&& msg) {
+  if (send(socket_, &msg->hdr, sizeof(msg->hdr), 0) < 0) {
+    perror("SendMsg: send ChatMsgHdr");
     return;
   }
 
-  if (send(socket_, text.c_str(), text.length(), 0) < 0) {
-    perror("SendPublicMsg: send buf");
+  if (!msg->hdr.buf_len)
+    return;
+
+  if (send(socket_, msg->buf, msg->hdr.buf_len, 0) < 0) {
+    perror("SendMsg: send buf");
     return;
   }
+}
+
+void PtxChatClient::InitLog() {
+  chat_log_.open("client.log");
+}
+
+void PtxChatClient::Log(const std::string& text) {
+  std::lock_guard<std::mutex> lc_log(chat_log_mtx_);
+  chat_log_ << text << std::endl;
 }
 
 PtxChatClient::~PtxChatClient() {
