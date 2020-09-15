@@ -4,26 +4,23 @@ project(ptx-chat CXX)
 
 include(cmake/StandardProjectSettings.cmake)
 
+set(CMAKE_AUTOMOC ON)
 set(CMAKE_CXX_COMPILE_FEATURES -std=c++17)
-include_directories(${CMAKE_CURRENT_SOURCE_DIR}/include)
+set(INCLUDE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/include)
 
+include_directories(${INCLUDE_DIR})
+
+# Enable all warnings
 add_library(project_warnings INTERFACE)
-
 include(cmake/CompilerWarnings.cmake)
 set_project_warnings(project_warnings)
 
-include(cmake/Doxygen.cmake)
-enable_doxygen()
-
+# Enable ccache
 include(cmake/Cache.cmake)
 
-option(ENABLE_TESTING "Enable Test Builds" OFF)
-
+# Pre-compiled headers
 option(ENABLE_PCH "Enable Precompiled Headers" OFF)
 if(ENABLE_PCH)
-  # This sets a global PCH parameter, each project will build its own PCH, which is a good idea if any #define's change
-  #
-  # consider breaking this out per project as necessary
   target_precompile_headers(
     project_options
     INTERFACE
@@ -34,6 +31,8 @@ if(ENABLE_PCH)
     <memory>)
 endif()
 
+# Tests
+option(ENABLE_TESTING "Enable Test Builds" OFF)
 if(ENABLE_TESTING)
   enable_testing()
   message("Building Tests. Be sure to check out test/constexpr_tests for constexpr testing")
