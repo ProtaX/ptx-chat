@@ -33,10 +33,24 @@ class PtxChatServer {
    * \brief Stop all threads, close sockets
    **/
   void Stop();
+
+  /**
+   * \brief Get the top element of gui events
+   **/
+  std::unique_ptr<struct GuiMsg> PopGuiEvent();
+
   void SetListenQueueSize(int size);
   bool SetIpPort_i(uint32_t ip, uint16_t port);
   bool SetIpPort_s(const std::string& ip, uint16_t port);
+
+  /**
+   * \brief Use log file
+   **/
   void LogOn() { use_log_ = true; }
+
+  /**
+   * \brief Do not use log file
+   **/
   void LogOff() { use_log_ = false; }
 
   [[nodiscard]] uint32_t    GetIp_i() const { return ip_; }
@@ -64,9 +78,11 @@ class PtxChatServer {
   struct ThreadState process_msg_thread_;  /**< protects client messages */
 
   // TODO(me) may be unique_ptr that owned by a thread?
-  std::deque<void*> gui_event_q_;
+  std::deque<std::unique_ptr<struct GuiMsg>> gui_events_;    /**< GUI events */
+  std::mutex gui_events_mtx_;
+
   std::deque<std::unique_ptr<struct ChatMsg>> client_msgs_;  /**< Client messages, protected by process_msg_thread_ */
-  std::vector<struct Client> clients_;                /**< Clients, protected by receive_msg_tread_ */
+  std::vector<struct Client> clients_;                       /**< Clients, protected by receive_msg_tread_ */
 
   void InitSocket();
   void InitLog();
@@ -80,6 +96,7 @@ class PtxChatServer {
   void ParseClientMsg(std::unique_ptr<struct ChatMsg>&& msg);
   void SendMsgToClient(std::unique_ptr<struct ChatMsg>&& msg, const Client& c);
   void SendMsgToAll(std::unique_ptr<struct ChatMsg>&& msg);
+  void PushGuiEvent(std::unique_ptr<struct GuiMsg>&& e);
   /* TODO(me): templates?
   template <typename M>
   void ProcessMsg(std::unique_ptr<struct ChatMsg>&& msg);

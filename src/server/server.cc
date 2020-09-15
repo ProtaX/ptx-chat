@@ -110,6 +110,7 @@ bool PtxChatServer::SetIpPort_s(const std::string& ip, uint16_t port) {
 }
 
 void PtxChatServer::Start() {
+  // TODO(me): start after start fix
   accept_conn_thread_.stop = 0;
   accept_conn_thread_.thread = std::thread(&PtxChatServer::AcceptConnections, this);
   accept_conn_thread_.thread.detach();
@@ -121,6 +122,13 @@ void PtxChatServer::Start() {
   process_msg_thread_.stop = 0;
   process_msg_thread_.thread = std::thread(&PtxChatServer::ProcessMessages, this);
   process_msg_thread_.thread.detach();
+
+  /* Send to gui */
+  std::unique_ptr<struct GuiMsg> e = std::make_unique<struct GuiMsg>();
+  e->type = GuiMsgType::SRV_START;
+  e->msg = nullptr;
+  std::lock_guard<std::mutex> lc_gui(gui_events_mtx_);
+  gui_events_.push_front(std::move(e));
 }
 
 void PtxChatServer::AcceptConnections() {
@@ -131,6 +139,8 @@ void PtxChatServer::AcceptConnections() {
     int cl_fd = accept(socket_, reinterpret_cast<struct sockaddr*>(&cl_addr), &cl_len);
     // TODO(me): error handling for known sockets - forget clients
     if (cl_fd < 0) {
+      if (accept_conn_thread_.stop)
+        return;
       perror("accept");
       return;
     }
@@ -226,6 +236,15 @@ void PtxChatServer::ProcessRegMsg(std::unique_ptr<struct ChatMsg>&& msg) {
       }
       client.Register();
       receive_msg_thread_.mtx.unlock();
+
+      /* Send to gui */
+      std::unique_ptr<struct GuiMsg> e = std::make_unique<struct GuiMsg>();
+      e->type = GuiMsgType::CLIENT_REG;
+      e->msg = std::move(msg);
+      gui_events_mtx_.lock();
+      gui_events_.push_front(std::move(e));
+      gui_events_mtx_.unlock();
+
       Log("ProcessRegMsg: client registered");
       return;
     }
@@ -245,6 +264,15 @@ void PtxChatServer::ProcessUnregMsg(std::unique_ptr<struct ChatMsg>&& msg) {
         strcmp(nick, client.GetNickname()) == 0) {
       client.Unregister();
       receive_msg_thread_.mtx.unlock();
+
+      /* Send to gui */
+      std::unique_ptr<struct GuiMsg> e = std::make_unique<struct GuiMsg>();
+      e->type = GuiMsgType::CLIENT_UNREG;
+      e->msg = std::move(msg);
+      gui_events_mtx_.lock();
+      gui_events_.push_front(std::move(e));
+      gui_events_mtx_.unlock();
+
       Log("ProcessUnregMsg: client unregistered");
       return;
     }
@@ -337,6 +365,15 @@ void PtxChatServer::SendMsgToClient(std::unique_ptr<struct ChatMsg>&& msg, const
     Log("SendMsgToClient: error: send");
     return;
   }
+
+  /* Send to gui */
+  std::unique_ptr<struct GuiMsg> e = std::make_unique<struct GuiMsg>();
+  e->type = GuiMsgType::PRIVATE_MSG;
+  e->msg = std::move(msg);
+  gui_events_mtx_.lock();
+  gui_events_.push_front(std::move(e));
+  gui_events_mtx_.unlock();
+
   Log("SendMsgToClient: message sent");
 }
 
@@ -357,8 +394,31 @@ void PtxChatServer::SendMsgToAll(std::unique_ptr<struct ChatMsg>&& msg) {
   }
 
   receive_msg_thread_.mtx.unlock();
+
+  /* Send to gui */
+  std::unique_ptr<struct GuiMsg> e = std::make_unique<struct GuiMsg>();
+  e->type = GuiMsgType::PUBLIC_MSG;
+  e->msg = std::move(msg);
+  gui_events_mtx_.lock();
+  gui_events_.push_front(std::move(e));
+  gui_events_mtx_.unlock();
+
   Log("SendMsgToAll: message sent");
-  Log(reinterpret_cast<const char*>(msg->buf));
+}
+
+std::unique_ptr<struct GuiMsg> PtxChatServer::PopGuiEvent() {
+  std::unique_ptr<struct GuiMsg> msg;
+  gui_events_mtx_.lock();
+  if (gui_events_.empty()) {
+    gui_events_mtx_.unlock();
+    msg = std::make_unique<struct GuiMsg>();
+    msg->type = GuiMsgType::Q_EMPTY;
+    return msg;
+  }
+  msg = std::move(gui_events_.back());
+  gui_events_.pop_back();
+  gui_events_mtx_.unlock();
+  return msg;
 }
 
 void PtxChatServer::Stop() {
@@ -373,6 +433,13 @@ void PtxChatServer::Stop() {
   process_msg_thread_.mtx.lock();
   process_msg_thread_.stop = 1;
   process_msg_thread_.mtx.unlock();
+
+  /* Send to gui */
+  std::unique_ptr<struct GuiMsg> e = std::make_unique<struct GuiMsg>();
+  e->type = GuiMsgType::SRV_STOP;
+  e->msg = nullptr;
+  std::lock_guard<std::mutex> lc_gui(gui_events_mtx_);
+  gui_events_.push_front(std::move(e));
 }
 
 void PtxChatServer::Finalize() {

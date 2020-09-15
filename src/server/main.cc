@@ -3,16 +3,15 @@
 #include <unistd.h>
 #include <string.h>
 
-#include "PtxChatServer.h"
+#include "Gui.h"
 
-int main() {
-  ptxchat::PtxChatServer serv1;
-  serv1.Start();
+int main(int argc, char** argv) {
+  QApplication app(argc, argv);
 
-  ssize_t nread;
-  char buf[32];
-  const char* ex = "exit";
-  while ((nread = read(0, buf, sizeof(buf))) > 0)
-    if (memcmp(buf, ex, static_cast<size_t>(nread - 1)) == 0)
-      break;
+  ptxchat::ServerGUI gui;
+  gui.resize(250, 400);
+  gui.setWindowTitle("PTX Server");
+  gui.show();
+
+  return app.exec();
 }
