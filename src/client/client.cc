@@ -60,15 +60,15 @@ void PtxChatClient::LogIn(const std::string& nick) {
   msg->hdr.buf_len = 0;
 
   /* Send sync message */
-  SendMsg(std::move(msg));
+  SendMsgToServer(std::move(msg));
 
   /* Handle messages async */
   msg_in_thread_.stop = 0;
-  msg_in_thread_.thread = std::thread(&PtxChatClient::ReceiveMessages, this);
+  msg_in_thread_.thread = std::thread(&PtxChatClient::ProcessReceiveMessages, this);
   msg_in_thread_.thread.detach();
 
   msg_out_thread_.stop = 0;
-  msg_out_thread_.thread = std::thread(&PtxChatClient::SendMessages, this);
+  msg_out_thread_.thread = std::thread(&PtxChatClient::ProcessSendMessages, this);
   msg_out_thread_.thread.detach();
 }
 
@@ -78,6 +78,7 @@ void PtxChatClient::SendMsg(const std::string& text) {
   msg->hdr.type = MsgType::PUBLIC_DATA;
   msg->hdr.buf_len = text.length();
   msg->buf = reinterpret_cast<uint8_t*>(malloc(msg->hdr.buf_len));
+  memcpy(msg->buf, text.data(), text.length());
   std::lock_guard<std::mutex> lc_msg_out(msg_out_thread_.mtx);
   msg_out_.push_front(std::move(msg));
 }
@@ -93,26 +94,30 @@ void PtxChatClient::SendMsgTo(const std::string& to, const std::string& text) {
   msg_out_.push_front(std::move(msg));
 }
 
-void PtxChatClient::SendMessages() {
+void PtxChatClient::ProcessSendMessages() {
   while (!msg_out_thread_.stop) {
     std::this_thread::sleep_for(std::chrono::milliseconds(MSG_THREAD_SLEEP));
-    msg_in_thread_.mtx.lock();
-    std::unique_ptr<struct ChatMsg> msg = std::move(msg_in_.back());
-    msg_in_.pop_back();
-    msg_in_thread_.mtx.unlock();
+    msg_out_thread_.mtx.lock();
+    if (msg_out_.empty()) {
+      msg_out_thread_.mtx.unlock();
+      continue;
+    }
+    std::unique_ptr<struct ChatMsg> msg = std::move(msg_out_.back());
+    msg_out_.pop_back();
+    msg_out_thread_.mtx.unlock();
 
-    SendMsg(std::move(msg));
+    SendMsgToServer(std::move(msg));
   }
 }
 
-void PtxChatClient::ReceiveMessages() {
+void PtxChatClient::ProcessReceiveMessages() {
   while (!msg_in_thread_.stop) {
     std::this_thread::sleep_for(std::chrono::milliseconds(MSG_THREAD_SLEEP));
     uint8_t* buf[sizeof(struct ChatMsgHdr)];
     ssize_t bytes_in = recv(socket_, buf, sizeof(buf), 0);
     if (bytes_in < 0) {
       // TODO(me): handle recv errors
-      perror("ReceiveMessages: recv ChatMsgHdr");
+      perror("ProcessReceiveMessages: recv ChatMsgHdr");
       continue;
     }
 
@@ -125,7 +130,7 @@ void PtxChatClient::ReceiveMessages() {
     msg->buf = reinterpret_cast<uint8_t*>(malloc(buf_len));
     if (buf_len != 0) {
       if (recv(socket_, msg->buf, buf_len, 0) < 0) {
-        perror("ReceiveMessages: recv buf");
+        perror("ProcessReceiveMessages: recv buf");
         continue;
       }
     }
@@ -144,18 +149,17 @@ void PtxChatClient::LogOut() {
   msg->hdr.type = MsgType::UNREGISTER;
   msg->hdr.buf_len = 0;
 
-  SendMsg(std::move(msg));
-
-  shutdown(socket_, SHUT_RDWR);
-  close(socket_);
-  socket_ = 0;
+  msg_out_thread_.mtx.lock();
+  msg_out_.push_front(std::move(msg));
+  msg_out_thread_.mtx.unlock();
 }
 
-void PtxChatClient::SendMsg(std::unique_ptr<struct ChatMsg>&& msg) {
+void PtxChatClient::SendMsgToServer(std::unique_ptr<struct ChatMsg>&& msg) {
   if (send(socket_, &msg->hdr, sizeof(msg->hdr), 0) < 0) {
     perror("SendMsg: send ChatMsgHdr");
     return;
   }
+  Log("SendMsg: sent hdr");
 
   if (!msg->hdr.buf_len)
     return;
@@ -164,6 +168,8 @@ void PtxChatClient::SendMsg(std::unique_ptr<struct ChatMsg>&& msg) {
     perror("SendMsg: send buf");
     return;
   }
+  Log("SendMsg: sent buf");
+  Log(reinterpret_cast<char*>(msg->buf));
 }
 
 void PtxChatClient::InitLog() {
@@ -177,6 +183,21 @@ void PtxChatClient::Log(const std::string& text) {
 
 PtxChatClient::~PtxChatClient() {
   LogOut();
+
+  while (!msg_out_.empty()) {std::this_thread::sleep_for(std::chrono::milliseconds(MSG_THREAD_SLEEP));}
+  while (!msg_in_.empty()) {std::this_thread::sleep_for(std::chrono::milliseconds(MSG_THREAD_SLEEP));}
+
+  msg_out_thread_.mtx.lock();
+  msg_out_thread_.stop = 1;
+  msg_out_thread_.mtx.unlock();
+
+  msg_in_thread_.mtx.lock();
+  msg_in_thread_.stop = 1;
+  msg_in_thread_.mtx.unlock();
+
+  shutdown(socket_, SHUT_RDWR);
+  close(socket_);
+  socket_ = 0;
 }
 
 }  // namespace ptxchat

@@ -47,10 +47,10 @@ class PtxChatClient {
   std::deque<std::unique_ptr<struct ChatMsg>> msg_in_;
   std::deque<std::unique_ptr<struct ChatMsg>> msg_out_;
 
-  void SendMsg(std::unique_ptr<struct ChatMsg>&& msg);
+  void SendMsgToServer(std::unique_ptr<struct ChatMsg>&& msg);
 
-  void ReceiveMessages();
-  void SendMessages();
+  void ProcessReceiveMessages();
+  void ProcessSendMessages();
   void InitLog();
   void Log(const std::string& text);
 };
