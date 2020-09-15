@@ -2,6 +2,8 @@
 #define MESSAGE_H_
 
 #include <stdint.h>
+#include <memory>
+#include <utility>
 
 #include "Client.h"
 
@@ -17,6 +19,28 @@ enum class MsgType {
   ERR_UNREGISTERED,
   ERR_REGISTERED,
   ERR_UNKNOWN,
+};
+
+enum class GuiMsgType {
+  Q_EMPTY,
+  CLIENT_REG,
+  CLIENT_UNREG,
+  PUBLIC_MSG,
+  PRIVATE_MSG,
+  SRV_START,
+  SRV_STOP,
+};
+
+struct GuiMsg {
+  GuiMsg() noexcept {}
+  GuiMsg(const GuiMsg&) = delete;
+  GuiMsg(GuiMsg&& r) {
+    msg = std::move(r.msg);
+    type = r.type;
+  }
+
+  GuiMsgType type;
+  std::unique_ptr<struct ChatMsg> msg;
 };
 
 #pragma pack(push, 1)
