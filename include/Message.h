@@ -21,25 +21,25 @@ enum class MsgType {
   ERR_UNKNOWN,
 };
 
-enum class GuiMsgType {
+enum class GuiEvType {
   Q_EMPTY,
   CLIENT_REG,
   CLIENT_UNREG,
   PUBLIC_MSG,
   PRIVATE_MSG,
-  SRV_START,
-  SRV_STOP,
+  SRV_START,    /**< msg can be nullptr */
+  SRV_STOP,     /**< msg can be nullptr */
 };
 
-struct GuiMsg {
-  GuiMsg() noexcept {}
-  GuiMsg(const GuiMsg&) = delete;
-  GuiMsg(GuiMsg&& r) {
+struct GuiEvent {
+  GuiEvent() noexcept {}
+  GuiEvent(const GuiEvent&) = delete;
+  GuiEvent(GuiEvent&& r) {
     msg = std::move(r.msg);
     type = r.type;
   }
 
-  GuiMsgType type;
+  GuiEvType type;
   std::unique_ptr<struct ChatMsg> msg;
 };
 

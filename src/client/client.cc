@@ -181,11 +181,25 @@ void PtxChatClient::Log(const std::string& text) {
   chat_log_ << text << std::endl;
 }
 
+bool PtxChatClient::SetIpPort_i(uint32_t ip, uint16_t port) {
+  server_ip_ = ip;
+  server_port_ = port;
+  return true;
+}
+
+bool PtxChatClient::SetIpPort_s(const std::string& ip, uint16_t port) {
+  struct in_addr ip_addr;
+  if (inet_pton(AF_INET, ip.c_str(), &ip_addr) <= 0)
+    return false;
+  server_ip_ = ip_addr.s_addr;
+  server_port_ = port;
+  return true;
+}
+
 PtxChatClient::~PtxChatClient() {
   LogOut();
 
   while (!msg_out_.empty()) {std::this_thread::sleep_for(std::chrono::milliseconds(MSG_THREAD_SLEEP));}
-  while (!msg_in_.empty()) {std::this_thread::sleep_for(std::chrono::milliseconds(MSG_THREAD_SLEEP));}
 
   msg_out_thread_.mtx.lock();
   msg_out_thread_.stop = 1;

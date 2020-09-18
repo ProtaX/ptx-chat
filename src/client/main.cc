@@ -2,6 +2,6 @@
 
 int main() {
   ptxchat::PtxChatClient client;
-  client.LogIn("assbuster");
-  client.SendMsg("hello, wordl!");
+  client.LogIn("[ProtaX");
+  client.SendMsg("helo, wordl!");
 }

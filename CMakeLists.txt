@@ -1,12 +1,16 @@
-cmake_minimum_required(VERSION 3.2)
+cmake_minimum_required(VERSION 3.12.1)
 
 project(ptx-chat CXX)
 
 include(cmake/StandardProjectSettings.cmake)
 
+add_library(project_options INTERFACE)
+target_compile_features(project_options INTERFACE cxx_std_17)
+
 set(CMAKE_AUTOMOC ON)
-set(CMAKE_CXX_COMPILE_FEATURES -std=c++17)
 set(INCLUDE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/include)
+set(LIB_DIR ${CMAKE_CURRENT_SOURCE_DIR}/lib)
+set(CMAKE_BUILD_TYPE Debug)
 
 include_directories(${INCLUDE_DIR})
 
@@ -40,3 +44,4 @@ if(ENABLE_TESTING)
 endif()
 
 add_subdirectory(src)
+add_subdirectory(lib)

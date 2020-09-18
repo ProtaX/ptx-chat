@@ -3,7 +3,7 @@
 #include <unistd.h>
 #include <string.h>
 
-#include "Gui.h"
+#include "PtxServerGui.h"
 
 int main(int argc, char** argv) {
   QApplication app(argc, argv);
