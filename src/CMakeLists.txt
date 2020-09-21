@@ -1,5 +1,5 @@
 option(BUILD_SERVER "Enable compilation of ptx-server" ON)
-option(BUILD_CLIENT "Enable compilation of ptx-client" OFF)
+option(BUILD_CLIENT "Enable compilation of ptx-client" On)
 
 if (BUILD_SERVER)
   message("Building ptx-server")

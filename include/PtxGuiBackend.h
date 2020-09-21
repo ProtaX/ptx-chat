@@ -2,6 +2,8 @@
 #define PTXGUIBACKEND_H_
 
 #include <memory>
+#include <vector>
+#include <functional>
 
 #include "Message.h"
 #include "SharedUDeque.h"

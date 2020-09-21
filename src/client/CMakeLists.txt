@@ -1,12 +1,11 @@
-set(CMAKE_INCLUDE_CURRENT_DIR ON)
-set(CMAKE_AUTOMOC ON)
-find_package(Qt5 COMPONENTS Widgets Core REQUIRED)
-qt5_wrap_cpp(gui-src-c ${INCLUDE_DIR}/PtxGuiFrontend.h)
+add_executable(ptx-client main.cc)
 
-add_executable(ptx-client main.cc client.cc ${gui-src-c})
-
-add_library(ptx-client-gui STATIC PtxClientGui.cc)
-
-target_link_libraries(ptx-client-gui ptx-gui-backend Qt5::Widgets Qt5::Core)
-target_link_libraries(ptx-client ptx-client-gui)
-target_link_libraries(ptx-client pthread)
+if(NOT GLFW3_FOUND)
+    find_package(GLFW3)
+    endif()
+if(GLFW3_FOUND)
+    include_directories(${GLFW3_INCLUDE_DIRS})
+    add_library(client client.cc)
+    target_link_libraries(client ptx-gui-backend pthread)
+  target_link_libraries(ptx-client ${GLFW3_LIBRARIES} project_warnings client nanogui ${NANOGUI_EXTRA_LIBS})
+endif()

@@ -16,6 +16,7 @@
 #include "Client.h"
 #include "Message.h"
 #include "PtxGuiBackend.h"
+#include "ClientStorage.h"
 
 namespace ptxchat {
 
@@ -36,8 +37,10 @@ class PtxChatServer: public GUIBackend {
   void Stop();
 
   void SetListenQueueSize(int size);
-  bool SetIpPort_i(uint32_t ip, uint16_t port);
-  bool SetIpPort_s(const std::string& ip, uint16_t port);
+  bool SetIP_i(uint32_t ip);
+  bool SetIP_s(const std::string& ip);
+  bool SetPort_i(uint16_t port);
+  bool SetPort_s(const std::string& port);
 
   /**
    * \brief Use or do not use text log
@@ -68,10 +71,8 @@ class PtxChatServer: public GUIBackend {
   struct ThreadState receive_msg_thread_;  /**< protects clients */
   struct ThreadState process_msg_thread_;  /**< protects client messages */
 
-  // TODO(me) may be unique_ptr that owned by a thread?
-
-  std::deque<std::unique_ptr<struct ChatMsg>> client_msgs_;  /**< Client messages, protected by process_msg_thread_ */
-  std::vector<struct Client> clients_;                       /**< Clients, protected by receive_msg_tread_ */
+  SharedUDeque<struct ChatMsg> client_msgs_;
+  ClientStorage clients_;
 
   void InitSocket();
   void InitLog();
@@ -83,7 +84,7 @@ class PtxChatServer: public GUIBackend {
   void ProcessMessages();    /**< Worker thread for replying to clients */
 
   void ParseClientMsg(std::unique_ptr<struct ChatMsg>&& msg);
-  void SendMsgToClient(std::unique_ptr<struct ChatMsg>&& msg, const Client& c);
+  bool SendMsgToClient(std::unique_ptr<struct ChatMsg>&& msg, int cl_fd);
   void SendMsgToAll(std::unique_ptr<struct ChatMsg>&& msg);
   /* TODO(me): templates?
   template <typename M>

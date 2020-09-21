@@ -15,6 +15,7 @@
 #include "Message.h"
 #include "Threads.h"
 #include "PtxGuiBackend.h"
+#include "SharedUDeque.h"
 
 namespace ptxchat {
 
@@ -36,12 +37,22 @@ class PtxChatClient : public GUIBackend {
   /**
    * \brief Set server ip as integer
    */
-  bool SetIpPort_i(uint32_t ip, uint16_t port);
+  bool SetIP_i(uint32_t ip);
 
   /**
    * \brief Set server ip as a string
    */
-  bool SetIpPort_s(const std::string& ip, uint16_t port);
+  bool SetIP_s(const std::string& ip);
+
+  /**
+   * \brief Set server port as integer
+   */
+  bool SetPort_i(uint16_t port);
+
+  /**
+   * \brief Set server port as a string
+   */
+  bool SetPort_s(const std::string& port);
 
   /**
    * \brief Connect and log in
@@ -75,8 +86,9 @@ class PtxChatClient : public GUIBackend {
 
   struct ThreadState msg_in_thread_;
   struct ThreadState msg_out_thread_;
-  std::deque<std::unique_ptr<struct ChatMsg>> msg_in_;
-  std::deque<std::unique_ptr<struct ChatMsg>> msg_out_;
+
+  SharedUDeque<struct ChatMsg> msg_in_;
+  SharedUDeque<struct ChatMsg> msg_out_;
 
   void SendMsgToServer(std::unique_ptr<struct ChatMsg>&& msg);
   void PushGuiEvent(std::unique_ptr<struct GuiEvent>&& e);

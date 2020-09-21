@@ -7,6 +7,7 @@
 #include <condition_variable>
 #include <deque>
 #include <memory>
+#include <utility>
 
 namespace ptxchat {
 
@@ -14,7 +15,7 @@ template<typename T>
 class SharedUDeque {
  public:
   SharedUDeque() noexcept: MAX_SIZE(1000) {}
-  SharedUDeque(size_t s) noexcept: MAX_SIZE(s) {}
+  explicit SharedUDeque(size_t s) noexcept: MAX_SIZE(s) {}
   ~SharedUDeque() {}
 
   /**
@@ -29,8 +30,11 @@ class SharedUDeque {
 
     /* Wait until an item will be placed */
     cond_.wait(lc_q, [this] {
-                return !deque_.empty();
+                return (!deque_.empty() || stop_);
               });
+    if (stop_)
+      return nullptr;
+
     t = std::move(deque_.front());
     deque_.pop_front();
 
@@ -49,8 +53,11 @@ class SharedUDeque {
 
     /* Wait until an item will be placed */
     cond_.wait(lc_q, [this] {
-                return !deque_.empty();
+                return (!deque_.empty() || stop_);
               });
+    if (stop_)
+      return nullptr;
+
     t = std::move(deque_.back());
     deque_.pop_back();
 
@@ -66,10 +73,11 @@ class SharedUDeque {
     std::unique_lock<std::mutex> lc_q(mtx_);
     if (deque_.size() == MAX_SIZE)
       return false;
-    
+
     deque_.push_front(std::move(i));
     mtx_.unlock();
     cond_.notify_one();
+    return true;
   }
 
   /**
@@ -81,11 +89,16 @@ class SharedUDeque {
     std::unique_lock<std::mutex> lc_q(mtx_);
     if (deque_.size() == MAX_SIZE)
       return false;
-    
+
     deque_.push_back(std::move(i));
     mtx_.unlock();
     cond_.notify_one();
     return true;
+  }
+
+  void stop() {
+    stop_ = true;
+    cond_.notify_all();
   }
 
  private:
@@ -93,6 +106,7 @@ class SharedUDeque {
   std::condition_variable cond_;
   std::deque<std::unique_ptr<T>> deque_;
 
+  volatile bool stop_ = false;
   const size_t MAX_SIZE;
 };
 

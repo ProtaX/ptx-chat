@@ -2,17 +2,22 @@ cmake_minimum_required(VERSION 3.12.1)
 
 project(ptx-chat CXX)
 
-include(cmake/StandardProjectSettings.cmake)
+set(INCLUDE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/include)
+set(LIB_DIR ${CMAKE_CURRENT_SOURCE_DIR}/lib)
+set(GLFW3_FOUND ON)
+set(GLFW3_INCLUDE_DIRS ${CMAKE_CURRENT_SOURCE_DIR}/ext/nanogui/ext/glfw/include)
+set(GLFW3_LIBRARIES $<TARGET_FILE:nanogui>)
+include_directories(${INCLUDE_DIR})
 
+# Enable C++17
 add_library(project_options INTERFACE)
 target_compile_features(project_options INTERFACE cxx_std_17)
 
-set(CMAKE_AUTOMOC ON)
-set(INCLUDE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/include)
-set(LIB_DIR ${CMAKE_CURRENT_SOURCE_DIR}/lib)
-set(CMAKE_BUILD_TYPE Debug)
+# Build targets
+include(cmake/StandardProjectSettings.cmake)
 
-include_directories(${INCLUDE_DIR})
+# NanoGUI
+include(cmake/NanoGUI.cmake)
 
 # Enable all warnings
 add_library(project_warnings INTERFACE)
@@ -20,7 +25,7 @@ include(cmake/CompilerWarnings.cmake)
 set_project_warnings(project_warnings)
 
 # Enable ccache
-include(cmake/Cache.cmake)
+#include(cmake/Cache.cmake)
 
 # Pre-compiled headers
 option(ENABLE_PCH "Enable Precompiled Headers" OFF)
@@ -45,3 +50,6 @@ endif()
 
 add_subdirectory(src)
 add_subdirectory(lib)
+
+add_dependencies(ptx-server nanogui)
+add_dependencies(ptx-client nanogui)

@@ -79,7 +79,6 @@ void PtxChatClient::SendMsg(const std::string& text) {
   msg->hdr.buf_len = text.length();
   msg->buf = reinterpret_cast<uint8_t*>(malloc(msg->hdr.buf_len));
   memcpy(msg->buf, text.data(), text.length());
-  std::lock_guard<std::mutex> lc_msg_out(msg_out_thread_.mtx);
   msg_out_.push_front(std::move(msg));
 }
 
@@ -90,22 +89,15 @@ void PtxChatClient::SendMsgTo(const std::string& to, const std::string& text) {
   msg->hdr.type = MsgType::PRIVATE_DATA;
   msg->hdr.buf_len = text.length();
   msg->buf = reinterpret_cast<uint8_t*>(malloc(msg->hdr.buf_len));
-  std::lock_guard<std::mutex> lc_msg_out(msg_out_thread_.mtx);
+  memcpy(msg->buf, text.data(), text.length());
   msg_out_.push_front(std::move(msg));
 }
 
 void PtxChatClient::ProcessSendMessages() {
   while (!msg_out_thread_.stop) {
-    std::this_thread::sleep_for(std::chrono::milliseconds(MSG_THREAD_SLEEP));
-    msg_out_thread_.mtx.lock();
-    if (msg_out_.empty()) {
-      msg_out_thread_.mtx.unlock();
-      continue;
-    }
     std::unique_ptr<struct ChatMsg> msg = std::move(msg_out_.back());
-    msg_out_.pop_back();
-    msg_out_thread_.mtx.unlock();
-
+    if (!msg)
+      return;
     SendMsgToServer(std::move(msg));
   }
 }
@@ -121,7 +113,6 @@ void PtxChatClient::ProcessReceiveMessages() {
       continue;
     }
 
-    // TODO(me): возможно, нужно будет сделать очерель событий для GUI, но сейчас сообщения будут просто выводиться в лог
     std::unique_ptr<struct ChatMsg> msg = std::make_unique<struct ChatMsg>();
     msg->hdr = *reinterpret_cast<struct ChatMsgHdr*>(buf);
     size_t buf_len = msg->hdr.buf_len;
@@ -178,36 +169,48 @@ void PtxChatClient::InitLog() {
 
 void PtxChatClient::Log(const std::string& text) {
   std::lock_guard<std::mutex> lc_log(chat_log_mtx_);
-  chat_log_ << text << std::endl;
+  char time_s[32];
+  time_t log_time = time(0);
+  struct tm log_local_time;
+  localtime_r(&log_time, &log_local_time);
+  strftime(time_s, 32, "[%d-%m-%Y %H:%M:%S:] ", &log_local_time);
+  std::thread::id t = std::this_thread::get_id();
+  chat_log_ << time_s << "[" << t << "] " << text << std::endl;
 }
 
-bool PtxChatClient::SetIpPort_i(uint32_t ip, uint16_t port) {
+bool PtxChatClient::SetIP_i(uint32_t ip) {
   server_ip_ = ip;
-  server_port_ = port;
   return true;
 }
 
-bool PtxChatClient::SetIpPort_s(const std::string& ip, uint16_t port) {
+bool PtxChatClient::SetIP_s(const std::string& ip) {
   struct in_addr ip_addr;
   if (inet_pton(AF_INET, ip.c_str(), &ip_addr) <= 0)
     return false;
   server_ip_ = ip_addr.s_addr;
+  return true;
+}
+
+bool PtxChatClient::SetPort_i(uint16_t port) {
   server_port_ = port;
+  return true;
+}
+
+bool PtxChatClient::SetPort_s(const std::string& port) {
+  uint16_t port_i = atoi(port.c_str());
+  if (!port_i)
+    return false;
+  server_port_ = port_i;
   return true;
 }
 
 PtxChatClient::~PtxChatClient() {
   LogOut();
 
-  while (!msg_out_.empty()) {std::this_thread::sleep_for(std::chrono::milliseconds(MSG_THREAD_SLEEP));}
-
-  msg_out_thread_.mtx.lock();
+  msg_in_.stop();
+  msg_out_.stop();
   msg_out_thread_.stop = 1;
-  msg_out_thread_.mtx.unlock();
-
-  msg_in_thread_.mtx.lock();
   msg_in_thread_.stop = 1;
-  msg_in_thread_.mtx.unlock();
 
   shutdown(socket_, SHUT_RDWR);
   close(socket_);
