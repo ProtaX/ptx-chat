@@ -105,7 +105,7 @@ void PtxChatClient::ProcessSendMessages() {
 void PtxChatClient::ProcessReceiveMessages() {
   while (!msg_in_thread_.stop) {
     std::this_thread::sleep_for(std::chrono::milliseconds(MSG_THREAD_SLEEP));
-    uint8_t* buf[sizeof(struct ChatMsgHdr)];
+    uint8_t buf[sizeof(struct ChatMsgHdr) + MAX_MSG_BUFFER_SIZE];
     ssize_t bytes_in = recv(socket_, buf, sizeof(buf), 0);
     if (bytes_in < 0) {
       // TODO(me): handle recv errors
@@ -118,16 +118,23 @@ void PtxChatClient::ProcessReceiveMessages() {
     size_t buf_len = msg->hdr.buf_len;
     if (buf_len > MAX_MSG_BUFFER_SIZE)
       continue;
-    msg->buf = reinterpret_cast<uint8_t*>(malloc(buf_len));
     if (buf_len != 0) {
-      if (recv(socket_, msg->buf, buf_len, 0) < 0) {
-        perror("ProcessReceiveMessages: recv buf");
-        continue;
-      }
+      msg->buf = reinterpret_cast<uint8_t*>(malloc(buf_len));
+      memcpy(msg->buf, buf+sizeof(struct ChatMsgHdr), buf_len);
     }
-
     std::string text = std::string(reinterpret_cast<char*>(msg->buf));
     Log(text);
+
+    switch (msg->hdr.type) {
+      case MsgType::PUBLIC_DATA:
+        PushGuiEvent(GuiEvType::PUBLIC_MSG, std::move(msg));
+        break;
+      case MsgType::PRIVATE_DATA:
+        PushGuiEvent(GuiEvType::PRIVATE_MSG, std::move(msg));
+        break;
+      default:
+        break;
+    }
   }
 }
 

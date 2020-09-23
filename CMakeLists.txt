@@ -48,8 +48,5 @@ if(ENABLE_TESTING)
   add_subdirectory(test)
 endif()
 
-add_subdirectory(src)
 add_subdirectory(lib)
-
-add_dependencies(ptx-server nanogui)
-add_dependencies(ptx-client nanogui)
+add_subdirectory(src)

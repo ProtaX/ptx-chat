@@ -4,6 +4,8 @@
 #include <stdint.h>
 #include <string.h>
 #include <string>
+#include <functional>
+#include <vector>
 
 namespace ptxchat {
 
@@ -22,7 +24,7 @@ class Client {
         port_(port),
         is_registered_(false) {}
 
-  [[nodiscard]] const char* GetNickname() const { return nickname_; }
+  [[nodiscard]] const std::string& GetNickname() const { return nickname_; }
   [[nodiscard]] int GetSocket() const { return socket_; }
   [[nodiscard]] uint32_t GetIp() const { return ip_; }
   [[nodiscard]] uint16_t GetPort() const { return port_; }
@@ -32,11 +34,21 @@ class Client {
     size_t n_len = nn.length();
     if (n_len > MAX_NICKNAME_LEN || n_len <= 1)
       return false;
-    strcpy(nickname_, nn.c_str());
+    const std::string old_nn = nn;
+    nickname_ = nn;
+    for (auto cb : nick_change_cb_)
+      cb(*this, old_nn);
     return true;
   }
 
-  void Register() { is_registered_ = true; }
+  void AddCallback(std::function<void(const Client&, const std::string&)> cb) {
+    nick_change_cb_.push_back(cb);
+  }
+
+  bool Register(const std::string& nn) {
+    is_registered_ = true;
+    return SetNickname(nn);
+  }
   void Unregister() { is_registered_ = false; }
 
  private:
@@ -44,7 +56,8 @@ class Client {
   uint32_t ip_;
   uint16_t port_;
   bool is_registered_;
-  char nickname_[MAX_NICKNAME_LEN];
+  std::string nickname_;
+  std::vector<std::function<void(const Client&, const std::string&)>> nick_change_cb_;
 };
 
 }  // namespace ptxchat

@@ -11,12 +11,12 @@
 #include <fstream>
 #include <iostream>
 #include <string>
+#include <unordered_map>
 
 #include "Threads.h"
 #include "Client.h"
 #include "Message.h"
 #include "PtxGuiBackend.h"
-#include "ClientStorage.h"
 
 namespace ptxchat {
 
@@ -72,7 +72,9 @@ class PtxChatServer: public GUIBackend {
   struct ThreadState process_msg_thread_;  /**< protects client messages */
 
   SharedUDeque<struct ChatMsg> client_msgs_;
-  ClientStorage clients_;
+  std::unordered_map<int, std::unique_ptr<Client>> accepted_clients_;
+  std::unordered_map<std::string, std::unique_ptr<Client>> registered_clients_;
+  std::mutex clients_mtx_;
 
   void InitSocket();
   void InitLog();
@@ -84,8 +86,9 @@ class PtxChatServer: public GUIBackend {
   void ProcessMessages();    /**< Worker thread for replying to clients */
 
   void ParseClientMsg(std::unique_ptr<struct ChatMsg>&& msg);
-  bool SendMsgToClient(std::unique_ptr<struct ChatMsg>&& msg, int cl_fd);
+  bool SendMsgToClient(std::unique_ptr<struct ChatMsg>&& msg, std::unique_ptr<Client>& client);
   void SendMsgToAll(std::unique_ptr<struct ChatMsg>&& msg);
+  bool RecvMsgFromClient(std::unique_ptr<Client>& cl);
   /* TODO(me): templates?
   template <typename M>
   void ProcessMsg(std::unique_ptr<struct ChatMsg>&& msg);

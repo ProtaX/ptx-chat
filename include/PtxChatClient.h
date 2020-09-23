@@ -30,11 +30,6 @@ class PtxChatClient : public GUIBackend {
   ~PtxChatClient();
 
   /**
-   * \brief Get the top element of gui events queue
-   */
-  std::unique_ptr<struct GuiEvent> PopGuiEvent();
-
-  /**
    * \brief Set server ip as integer
    */
   bool SetIP_i(uint32_t ip);
@@ -91,7 +86,6 @@ class PtxChatClient : public GUIBackend {
   SharedUDeque<struct ChatMsg> msg_out_;
 
   void SendMsgToServer(std::unique_ptr<struct ChatMsg>&& msg);
-  void PushGuiEvent(std::unique_ptr<struct GuiEvent>&& e);
 
   void ProcessReceiveMessages();
   void ProcessSendMessages();

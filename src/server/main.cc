@@ -2,12 +2,11 @@
 #include <stdio.h>
 #include <unistd.h>
 #include <string.h>
-#include <thread>
+#include <nanogui/nanogui.h>
 
+#include <thread>
 #include <iostream>
 
-#include <nanogui/nanogui.h>
-#include "PtxGuiBackend.h"
 #include "PtxChatServer.h"
 #include "Message.h"
 

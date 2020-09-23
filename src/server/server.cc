@@ -156,55 +156,73 @@ void PtxChatServer::AcceptConnections() {
     }
     Log("Client accepted");
     std::unique_ptr<Client> client = std::make_unique<Client>(cl_fd, cl_addr.sin_addr.s_addr, cl_addr.sin_port);
-    clients_.add(std::move(client));
+    accepted_clients_.emplace(cl_fd, std::move(client));
   }
   Log("AcceptConnections: finished");
+}
+
+bool PtxChatServer::RecvMsgFromClient(std::unique_ptr<Client>& cl) {
+  int client_fd = cl->GetSocket();
+  uint8_t raw_hdr[sizeof(struct ChatMsgHdr)];
+  ssize_t rec_bytes_hdr = recv(client_fd, raw_hdr, sizeof(raw_hdr), MSG_DONTWAIT);
+  if (rec_bytes_hdr < 0) {
+    if (errno == EAGAIN)
+      return true;
+    if (errno == ECONNREFUSED || errno == ENOTCONN || errno == ENOTSOCK) {
+      return false;
+    }
+
+    Stop();  // TODO(me): crash, not stop
+    return true;
+  }
+  if (rec_bytes_hdr == 0)
+    return true;
+
+  Log("Client msg receicved");
+  struct ChatMsgHdr* hdr = reinterpret_cast<struct ChatMsgHdr*>(raw_hdr);
+  size_t buf_len = hdr->buf_len;
+  if (buf_len > MAX_MSG_BUFFER_SIZE)
+    Log("ReceiveMessages: Warning: message buffer is too big");
+  std::unique_ptr<struct ChatMsg> msg = std::make_unique<struct ChatMsg>();
+
+  struct sockaddr_in cl_addr;
+  socklen_t sock_len = sizeof(cl_addr);
+  getpeername(client_fd, reinterpret_cast<struct sockaddr*>(&cl_addr), &sock_len);
+  msg->hdr = *hdr;
+  msg->hdr.src_ip = cl_addr.sin_addr.s_addr;
+  msg->hdr.src_port = cl_addr.sin_port;
+
+  if (buf_len != 0) {
+    msg->buf = reinterpret_cast<uint8_t*>(malloc(buf_len));
+    ssize_t rec_bytes_buf = recv(client_fd, msg->buf, buf_len, 0);
+    if (rec_bytes_buf < 0)
+      return true;
+  }
+
+  client_msgs_.push_front(std::move(msg));
+  return true;
 }
 
 void PtxChatServer::ReceiveMessages() {
   Log("ReceiveMessages: started");
   while (!receive_msg_thread_.stop) {
     std::this_thread::sleep_for(std::chrono::milliseconds(SERVER_TICK));
-    clients_.for_each([this](ClientStorageMap& m, ClientStorageIter& it)->ClientStorageIter {
-      int client_fd = it->second->GetSocket();
-      uint8_t raw_hdr[sizeof(struct ChatMsgHdr)];
-      ssize_t rec_bytes_hdr = recv(client_fd, raw_hdr, sizeof(raw_hdr), MSG_DONTWAIT);
-      if (rec_bytes_hdr < 0) {
-        if (errno == EAGAIN)
-          return ++it;
-        if (errno == ECONNREFUSED || errno == ENOTCONN || errno == ENOTSOCK)
-          return m.erase(it);
 
-        Stop();  // TODO(me): crash, not stop
-        return m.end();
-      }
-      if (rec_bytes_hdr == 0)
-        return ++it;
-
-      Log("Client msg receicved");
-      struct ChatMsgHdr* hdr = reinterpret_cast<struct ChatMsgHdr*>(raw_hdr);
-      size_t buf_len = hdr->buf_len;
-      if (buf_len > MAX_MSG_BUFFER_SIZE)
-        Log("ReceiveMessages: Warning: message buffer is too big");
-      std::unique_ptr<struct ChatMsg> msg = std::make_unique<struct ChatMsg>();
-
-      struct sockaddr_in cl_addr;
-      socklen_t sock_len = sizeof(cl_addr);
-      getpeername(client_fd, reinterpret_cast<struct sockaddr*>(&cl_addr), &sock_len);
-      msg->hdr = *hdr;
-      msg->hdr.src_ip = cl_addr.sin_addr.s_addr;
-      msg->hdr.src_port = cl_addr.sin_port;
-
-      if (buf_len != 0) {
-        msg->buf = reinterpret_cast<uint8_t*>(malloc(buf_len));
-        ssize_t rec_bytes_buf = recv(client_fd, msg->buf, buf_len, 0);
-        if (rec_bytes_buf < 0)
-          return ++it;
-      }
-
-      client_msgs_.push_front(std::move(msg));
-      return ++it;
-    });
+    std::unique_lock<std::mutex> lc_storage(clients_mtx_);
+    for (auto it = accepted_clients_.begin(); it != accepted_clients_.end(); ) {
+      bool res = RecvMsgFromClient(it->second);
+      if (!res)
+        it = accepted_clients_.erase(it);
+      else
+        ++it;
+    }
+    for (auto it = registered_clients_.begin(); it != registered_clients_.end(); ) {
+      bool res = RecvMsgFromClient(it->second);
+      if (!res)
+        it = registered_clients_.erase(it);
+      else
+        ++it;
+    }
   }
   Log("ReceiveMessages: finished");
 }
@@ -223,34 +241,29 @@ void PtxChatServer::ProcessRegMsg(std::unique_ptr<struct ChatMsg>&& msg) {
   char* nick = msg->hdr.from;
   uint32_t ip = msg->hdr.src_ip;
   uint16_t port = msg->hdr.src_port;
-  clients_.for_each([ip, port, nick, this](ClientStorageMap& m, ClientStorageIter& it)->ClientStorageIter {
+
+  std::unique_lock<std::mutex> lc_storage(clients_mtx_);
+  for (auto it = accepted_clients_.begin(); it != accepted_clients_.end(); ++it) {
     std::unique_ptr<Client>& client = it->second;
-    std::unique_ptr<struct ChatMsg> reply = std::make_unique<struct ChatMsg>();
+
     if (client->GetIp() == ip && client->GetPort() == port) {
-      if (client->IsRegistered()) {
-        reply->hdr = ChatMsgHdr{MsgType::ERR_REGISTERED, ip_, port_, "ChatServer", "", 0};
-        strcpy(reply->hdr.to, nick);
-        if (!SendMsgToClient(std::move(reply), client->GetSocket()))
-          m.erase(it);
-        Log("ProcessRegMsg: error: client is already registered");
-        return m.end();
-      }
-
-      if (!client->SetNickname(nick)) {
+      std::unique_ptr<struct ChatMsg> reply = std::make_unique<struct ChatMsg>();
+      if (!client->Register(nick)) {
         Log("ProcessRegMsg: error: bad client nickanme");
-        return m.end();  // TODO(me): send error
+        return;  // TODO(me): send error to client
       }
 
-      client->Register();
+      registered_clients_.emplace(nick, std::move(client));
+      accepted_clients_.erase(it);
+
       reply->hdr = ChatMsgHdr{MsgType::ERR_REGISTERED, ip_, port_, "ChatServer", "", 0};
       strcpy(reply->hdr.from, nick);
       PushGuiEvent(GuiEvType::CLIENT_REG, std::move(reply));
       Log("ProcessRegMsg: client registered");
-      return m.end();
+      return;
     }
+  }
 
-    return ++it;
-  });
   Log("ProcessRegMsg: error: client not found");
 }
 
@@ -259,47 +272,55 @@ void PtxChatServer::ProcessUnregMsg(std::unique_ptr<struct ChatMsg>&& msg) {
   uint32_t ip = msg->hdr.src_ip;
   uint16_t port = msg->hdr.src_port;
 
-  clients_.for_each([nick, ip, port, this](Client& client)->bool {
-    if (client.GetIp() == ip && client.GetPort() == port &&
-        strcmp(nick, client.GetNickname()) == 0) {
-      client.Unregister();
+  std::unique_lock<std::mutex> lc_storage(clients_mtx_);
+  for (auto it = registered_clients_.begin(); it != registered_clients_.end(); ++it) {
+    std::unique_ptr<Client>& client = it->second;
+    if (client->GetIp() == ip && client->GetPort() == port &&
+        client->GetNickname() == nick) {
+      client->Unregister();
+
+      accepted_clients_.emplace(client->GetSocket(), std::move(client));
+      registered_clients_.erase(it);
 
       std::unique_ptr<struct ChatMsg> gui_repl = std::make_unique<struct ChatMsg>();
       strcpy(gui_repl->hdr.from, nick);
       PushGuiEvent(GuiEvType::CLIENT_UNREG, std::move(gui_repl));
       Log("ProcessUnregMsg: client unregistered");
-      return false;
+      return;
     }
+  }
 
-    return true;
-  });
   Log("ProcessUnregMsg: error: client not found");
 }
 
 void PtxChatServer::ProcessPrivateMsg(std::unique_ptr<struct ChatMsg>&& msg) {
-  auto from = clients_.exists(msg->hdr.from);
-  if (!from.first) {
+  std::unique_lock<std::mutex> lc_storage(clients_mtx_);
+  auto from = registered_clients_.find(msg->hdr.from);
+  if (from == registered_clients_.end()) {
     Log("ProcessPrivateMsg: error: from not found");
     return;
   }
 
-  auto to = clients_.exists(msg->hdr.to);
-  if (!to.first) {
+  auto to = registered_clients_.find(msg->hdr.to);
+  if (to == registered_clients_.end()) {
     Log("ProcessPrivateMsg: error: to not found");
     return;
   }
+  clients_mtx_.unlock();
 
-  if (!SendMsgToClient(std::move(msg), to.second->GetSocket()))
-    clients_.del(msg->hdr.from);
+  if (!SendMsgToClient(std::move(msg), to->second))
+    registered_clients_.erase(to);
 }
 
 void PtxChatServer::ProcessPublicMsg(std::unique_ptr<struct ChatMsg>&& msg) {
   char* nick = msg->hdr.from;
 
-  if (!clients_.exists(nick).first) {
+  std::unique_lock<std::mutex> lc_storage(clients_mtx_);
+  if (registered_clients_.find(nick) == registered_clients_.end()) {
     Log("ProcessPublicMsg: Error: client not found");
     return;
   }
+  clients_mtx_.unlock();
 
   SendMsgToAll(std::move(msg));
 }
@@ -326,12 +347,21 @@ void PtxChatServer::ParseClientMsg(std::unique_ptr<struct ChatMsg>&& msg) {
   }
 }
 
-bool PtxChatServer::SendMsgToClient(std::unique_ptr<struct ChatMsg>&& msg, int cl_fd) {
-  if (send(cl_fd, msg->buf, msg->hdr.buf_len, 0) < 0) {
+bool PtxChatServer::SendMsgToClient(std::unique_ptr<struct ChatMsg>&& msg, std::unique_ptr<Client>& client) {
+  if (send(client->GetSocket(), &msg->hdr, sizeof(struct ChatMsgHdr), 0) < 0) {
     if (errno == ECONNRESET)
       return false;
-    Log("SendMsgToClient: error: send");
+    Log("SendMsgToClient: error: send hdr");
     return false;
+  }
+
+  if (msg->hdr.buf_len) {
+    if (send(client->GetSocket(), msg->buf, msg->hdr.buf_len, 0) < 0) {
+      if (errno == ECONNRESET)
+        return false;
+      Log("SendMsgToClient: error: send buf");
+      return false;
+    }
   }
 
   PushGuiEvent(GuiEvType::PRIVATE_MSG, std::move(msg));
@@ -340,24 +370,30 @@ bool PtxChatServer::SendMsgToClient(std::unique_ptr<struct ChatMsg>&& msg, int c
 }
 
 void PtxChatServer::SendMsgToAll(std::unique_ptr<struct ChatMsg>&& msg) {
-  size_t buf_len = msg->hdr.buf_len;
-  const void* msg_buf = msg.get();
-
-  clients_.for_each([buf_len, msg_buf, this](ClientStorageMap& m, ClientStorageIter& it)->ClientStorageIter {
-    if (!it->second->IsRegistered())
-      return ++it;
-    int c_fd = it->second->GetSocket();
-    size_t msg_size = sizeof(struct ChatMsg) + buf_len;
-    ssize_t sent_bytes = send(c_fd, msg_buf, msg_size, 0);
-    if (sent_bytes < 0) {
-      if (errno == ECONNRESET)
-        return m.erase(it);
-      Log("SendMsgToClient: error: send");
-      return m.end();
+  std::unique_lock<std::mutex> lc_storage(clients_mtx_);
+  for (auto it = registered_clients_.begin(); it != registered_clients_.end(); ++it) {
+    std::unique_ptr<Client>& client = it->second;
+    int c_fd = client->GetSocket();
+    ssize_t sent_hdr_bytes = send(c_fd, &msg->hdr, sizeof(struct ChatMsgHdr), 0);
+    if (sent_hdr_bytes < 0) {
+      if (errno == ECONNRESET) {
+        it = registered_clients_.erase(it);
+        continue;
+      }
+      Log("SendMsgToClient: error: send hdr");
+      continue;
     }
 
-    return ++it;
-  });
+    ssize_t sent_buf_bytes = send(c_fd, msg->buf, msg->hdr.buf_len, 0);
+    if (sent_buf_bytes < 0) {
+      if (errno == ECONNRESET) {
+        it = registered_clients_.erase(it);
+        continue;
+      }
+      Log("SendMsgToClient: error: send buf");
+      continue;
+    }
+  }
 
   PushGuiEvent(GuiEvType::PUBLIC_MSG, std::move(msg));
   Log("SendMsgToAll: message sent");
