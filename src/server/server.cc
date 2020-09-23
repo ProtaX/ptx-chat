@@ -258,9 +258,14 @@ void PtxChatServer::ProcessRegMsg(std::unique_ptr<struct ChatMsg>&& msg) {
   uint16_t port = msg->hdr.src_port;
 
   std::unique_lock<std::mutex> lc_storage(clients_mtx_);
+  auto res = registered_clients_.find(nick);
+  if (res != registered_clients_.end()) {
+    Log("ProcessRegMsg: error: client alredy registered with given nickname");
+    return;
+  }
+
   for (auto it = accepted_clients_.begin(); it != accepted_clients_.end(); ++it) {
     std::unique_ptr<Client>& client = it->second;
-
     if (client->GetIp() == ip && client->GetPort() == port) {
       std::unique_ptr<struct ChatMsg> reply = std::make_unique<struct ChatMsg>();
       if (!client->Register(nick)) {
@@ -288,24 +293,25 @@ void PtxChatServer::ProcessUnregMsg(std::unique_ptr<struct ChatMsg>&& msg) {
   uint16_t port = msg->hdr.src_port;
 
   std::unique_lock<std::mutex> lc_storage(clients_mtx_);
-  for (auto it = registered_clients_.begin(); it != registered_clients_.end(); ++it) {
-    std::unique_ptr<Client>& client = it->second;
-    if (client->GetIp() == ip && client->GetPort() == port &&
-        client->GetNickname() == nick) {
-      client->Unregister();
+  auto res = registered_clients_.find(std::string(nick));
+  if (res == registered_clients_.end()) {
+    Log("ProcessUnregMsg: error: client not found");
+    return;
+  }
+  std::unique_ptr<Client>& client = res->second;
+  if (client->GetIp() == ip && client->GetPort() == port) {
+    client->Unregister();
+    accepted_clients_.emplace(client->GetSocket(), std::move(client));
+    registered_clients_.erase(res);
 
-      accepted_clients_.emplace(client->GetSocket(), std::move(client));
-      registered_clients_.erase(it);
-
-      std::unique_ptr<struct ChatMsg> gui_repl = std::make_unique<struct ChatMsg>();
-      strcpy(gui_repl->hdr.from, nick);
-      PushGuiEvent(GuiEvType::CLIENT_UNREG, std::move(gui_repl));
-      Log("ProcessUnregMsg: client unregistered");
-      return;
-    }
+    std::unique_ptr<struct ChatMsg> gui_repl = std::make_unique<struct ChatMsg>();
+    strcpy(gui_repl->hdr.from, nick);
+    PushGuiEvent(GuiEvType::CLIENT_UNREG, std::move(gui_repl));
+    Log("ProcessUnregMsg: client unregistered");
+    return;
   }
 
-  Log("ProcessUnregMsg: error: client not found");
+  Log("ProcessUnregMsg: error: fot unreg msg from another address");
 }
 
 void PtxChatServer::ProcessPrivateMsg(std::unique_ptr<struct ChatMsg>&& msg) {
@@ -415,6 +421,8 @@ void PtxChatServer::SendMsgToAll(std::unique_ptr<struct ChatMsg>&& msg) {
 }
 
 void PtxChatServer::Stop() {
+  if (stop_)
+    return;
   stop_ = true;
 
   accept_conn_thread_.mtx.lock();
