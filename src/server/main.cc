@@ -6,6 +6,7 @@
 
 #include <thread>
 #include <iostream>
+#include <vector>
 
 #include "PtxChatServer.h"
 #include "Message.h"
@@ -17,6 +18,13 @@ using nanogui::FormHelper;
 using nanogui::Window;
 using nanogui::Screen;
 using nanogui::ref;
+using nanogui::GroupLayout;
+using nanogui::Widget;
+using nanogui::VScrollPanel;
+using nanogui::GridLayout;
+using nanogui::Label;
+using nanogui::Button;
+using nanogui::BoxLayout;
 
 using Eigen::Vector2i;
 
@@ -24,7 +32,14 @@ using ptxchat::GuiEvType;
 using ptxchat::GuiEvent;
 using ptxchat::MAX_MSG_BUFFER_SIZE;
 
-void ProcessChatEvents(TextBox* t) {
+static constexpr int h = 250;
+static constexpr int w = 300;
+static constexpr int box_w = w/2;
+static constexpr int box_add = 10;
+static constexpr int log_add = 50;
+static constexpr int log_lines = 5;
+
+void ProcessChatEvents(std::vector<TextBox*> log) {
   while (1) {
     char text[MAX_MSG_BUFFER_SIZE + 32];
     std::unique_ptr<struct GuiEvent> e = server.PopGuiEvent();
@@ -52,45 +67,73 @@ void ProcessChatEvents(TextBox* t) {
         snprintf(text, MAX_MSG_BUFFER_SIZE, "[PRV] %s to %s\n", e->msg->hdr.from, e->msg->hdr.to);
         break;
     }
-    t->setValue(t->value() + std::string(text));
+
+    for (size_t i = log_lines - 1; i > 0; --i)
+      log[i]->setValue(log[i-1]->value());
+    log[0]->setValue(std::string(text));
   }
 }
 
 int main(int /* argc */, char** /* argv */) {
-  std::string ip_str_ = "0.0.0.0";
-  uint16_t port_ = 1488;
-
   nanogui::init();
   {
-    Screen* screen_ = new Screen(Vector2i(300, 600), "PTX Server");
-    FormHelper* gui = new FormHelper(screen_);
-    ref<Window> window = gui->addWindow(Vector2i(35, 15), "Chat window");
+    Screen* screen = new Screen({w, h}, "PTX Server", false);
+    Window *window = new Window(screen, "PTX Server Control Panel");
+    window->setPosition({0, 0});
+    window->setFixedSize({w, h});
+    window->setLayout(new BoxLayout(nanogui::Orientation::Horizontal, nanogui::Alignment::Middle, 0, 0));
+    auto set_wrapper = new Widget(window);
+    set_wrapper->setFixedSize({box_w, h});
+    set_wrapper->setLayout(new GroupLayout());
 
-    TextBox* t = new TextBox(window, "");
-    t->setAlignment(TextBox::Alignment::Right);
-    t->setSize(Vector2i(300, 300));
-    t->setSpinnable(true);
+    new Label(set_wrapper, "IP");
 
-    gui->addGroup("Server IP and port");
-    gui->addVariable("IP", ip_str_)->setCallback([](const std::string& ip){
-      server.SetIP_s(ip);
+    TextBox* ip_text = new TextBox(set_wrapper, "0.0.0.0");
+    ip_text->setFixedWidth(box_w/2 + box_add);
+    ip_text->setEditable(true);
+    ip_text->setCallback([](const std::string& ip){
+      return server.SetIP_s(ip);
     });
-    gui->addVariable("Port", port_)->setCallback([](uint16_t port){
-      server.SetPort_i(port);
+
+    new Label(set_wrapper, "Port");
+    TextBox* port_text = new TextBox(set_wrapper, "1488");
+    port_text->setFixedWidth(box_w/2 + box_add);
+    port_text->setEditable(true);
+    port_text->setCallback([](const std::string& port){
+      return server.SetPort_s(port);
     });
-    gui->addButton("Start server", []{
+
+    Button* start_btn = new Button(set_wrapper, "Start server");
+    start_btn->setFixedWidth(box_w/2 + box_add);
+    start_btn->setCallback([]{
       server.Start();
     });
-    gui->addButton("Stop server", []{
+    Button* stop_btn = new Button(set_wrapper, "Stop server");
+    stop_btn->setFixedWidth(box_w/2 + box_add);
+    stop_btn->setCallback([]{
       server.Stop();
     });
-    gui->addWidget("", t);
 
-    std::thread chat_thread(ProcessChatEvents, t);
+    Widget* log_wrapper = new Widget(window);
+    auto v = new VScrollPanel(window);
+    v->setFixedSize({w/2, h});
+    log_wrapper->setFixedSize({w/2, h});
+    log_wrapper->setLayout(new GroupLayout());
+
+    new Label(log_wrapper, "Server Log");
+    std::vector<TextBox*> log;
+    for (int i = 0; i < log_lines; ++i) {
+      TextBox* t = new TextBox(log_wrapper, "");
+      t->setAlignment(TextBox::Alignment::Left);
+      t->setSpinnable(false);
+      t->setFixedWidth(box_w/2 + 30);
+      log.push_back(t);
+    }
+    std::thread chat_thread(ProcessChatEvents, log);
     chat_thread.detach();
-    window->center();
-    screen_->performLayout();
-    screen_->setVisible(true);
+
+    screen->performLayout();
+    screen->setVisible(true);
     nanogui::mainloop();
   }
   nanogui::shutdown();
