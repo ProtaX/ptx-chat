@@ -96,9 +96,20 @@ class SharedUDeque {
     return true;
   }
 
-  void stop() {
-    stop_ = true;
+  /**
+   * \brief Set stop flag on all waiting threads
+   */
+  void stop(bool s) {
+    stop_ = s;
     cond_.notify_all();
+  }
+
+  /**
+   * \brief Clear queue
+   */
+  void clear() {
+    std::unique_lock<std::mutex> lc_q(mtx_);
+    deque_.clear();
   }
 
  private:

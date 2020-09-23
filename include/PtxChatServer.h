@@ -59,6 +59,7 @@ class PtxChatServer: public GUIBackend {
   uint16_t port_;           /**< Server port (default = 8080) */
   int listen_q_size_;       /**< Max amount of clients in listen queue */
   int socket_;              /**< Server socket (blocking) */
+  volatile bool stop_;
 
   std::ofstream log_file_;
   bool use_log_;

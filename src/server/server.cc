@@ -23,6 +23,7 @@ PtxChatServer::PtxChatServer() noexcept {
   listen_q_size_ = 100;
   socket_ = 0;
   use_log_ = true;
+  stop_ = true;
   InitSocket();
   InitLog();
 }
@@ -34,6 +35,7 @@ PtxChatServer::PtxChatServer(uint32_t ip, uint16_t port) noexcept {
   listen_q_size_ = 100;
   socket_ = 0;
   use_log_ = true;
+  stop_ = true;
   InitSocket();
   InitLog();
 }
@@ -75,8 +77,9 @@ void PtxChatServer::InitSocket() {
     exit(-1);
   }
 
-  int opt_val = 1;
-  setsockopt(skt, SOL_SOCKET, SO_REUSEADDR, &opt_val, sizeof(opt_val));
+  int reuse_addr_opt = 1, keepalive_opt = 1;
+  setsockopt(skt, SOL_SOCKET, SO_REUSEADDR, &reuse_addr_opt, sizeof(reuse_addr_opt));
+  setsockopt(skt, SOL_SOCKET, SO_KEEPALIVE, &keepalive_opt, sizeof(keepalive_opt));
 
   if (bind(skt, reinterpret_cast<struct sockaddr*>(&addr), sizeof(addr)) < 0) {
     perror("bind");
@@ -125,7 +128,9 @@ bool PtxChatServer::SetPort_s(const std::string& port) {
 }
 
 void PtxChatServer::Start() {
-  // TODO(me): start after start fix
+  if (!stop_)
+    return;
+  stop_ = false;
   accept_conn_thread_.stop = 0;
   accept_conn_thread_.thread = std::thread(&PtxChatServer::AcceptConnections, this);
   accept_conn_thread_.thread.detach();
@@ -137,6 +142,8 @@ void PtxChatServer::Start() {
   process_msg_thread_.stop = 0;
   process_msg_thread_.thread = std::thread(&PtxChatServer::ProcessMessages, this);
   process_msg_thread_.thread.detach();
+
+  client_msgs_.stop(false);
 
   PushGuiEvent(GuiEvType::SRV_START, nullptr);
 }
@@ -165,18 +172,25 @@ bool PtxChatServer::RecvMsgFromClient(std::unique_ptr<Client>& cl) {
   int client_fd = cl->GetSocket();
   uint8_t raw_hdr[sizeof(struct ChatMsgHdr)];
   ssize_t rec_bytes_hdr = recv(client_fd, raw_hdr, sizeof(raw_hdr), MSG_DONTWAIT);
+  /* Client disconnected */
+  if (rec_bytes_hdr == 0) {
+    Log("Client disconnected");
+    return false;
+  }
   if (rec_bytes_hdr < 0) {
+    /* No data */
     if (errno == EAGAIN)
       return true;
+
+    /* Connection lost */
     if (errno == ECONNREFUSED || errno == ENOTCONN || errno == ENOTSOCK) {
+      Log("Client connection lost");
       return false;
     }
 
     Stop();  // TODO(me): crash, not stop
     return true;
   }
-  if (rec_bytes_hdr == 0)
-    return true;
 
   Log("Client msg receicved");
   struct ChatMsgHdr* hdr = reinterpret_cast<struct ChatMsgHdr*>(raw_hdr);
@@ -230,8 +244,9 @@ void PtxChatServer::ReceiveMessages() {
 void PtxChatServer::ProcessMessages() {
   Log("ProcessMessages: started");
   while (!receive_msg_thread_.stop) {
-    std::this_thread::sleep_for(std::chrono::milliseconds(SERVER_TICK));
     std::unique_ptr<struct ChatMsg> msg = std::move(client_msgs_.back());
+    if (!msg)
+      return;
     ParseClientMsg(std::move(msg));
   }
   Log("ProcessMessages: finished");
@@ -400,6 +415,8 @@ void PtxChatServer::SendMsgToAll(std::unique_ptr<struct ChatMsg>&& msg) {
 }
 
 void PtxChatServer::Stop() {
+  stop_ = true;
+
   accept_conn_thread_.mtx.lock();
   accept_conn_thread_.stop = 1;
   accept_conn_thread_.mtx.unlock();
@@ -411,6 +428,11 @@ void PtxChatServer::Stop() {
   process_msg_thread_.mtx.lock();
   process_msg_thread_.stop = 1;
   process_msg_thread_.mtx.unlock();
+
+  accepted_clients_.clear();
+  registered_clients_.clear();
+  client_msgs_.stop(true);
+  client_msgs_.clear();
 
   PushGuiEvent(GuiEvType::SRV_STOP, nullptr);
 }

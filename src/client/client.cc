@@ -147,9 +147,7 @@ void PtxChatClient::LogOut() {
   msg->hdr.type = MsgType::UNREGISTER;
   msg->hdr.buf_len = 0;
 
-  msg_out_thread_.mtx.lock();
-  msg_out_.push_front(std::move(msg));
-  msg_out_thread_.mtx.unlock();
+  SendMsgToServer(std::move(msg));
 }
 
 void PtxChatClient::SendMsgToServer(std::unique_ptr<struct ChatMsg>&& msg) {
@@ -212,14 +210,14 @@ bool PtxChatClient::SetPort_s(const std::string& port) {
 }
 
 PtxChatClient::~PtxChatClient() {
-  LogOut();
+  msg_in_.stop(true);
+  msg_out_.stop(true);
 
-  msg_in_.stop();
-  msg_out_.stop();
+  LogOut();
   msg_out_thread_.stop = 1;
   msg_in_thread_.stop = 1;
 
-  shutdown(socket_, SHUT_RDWR);
+  shutdown(socket_, SHUT_RD);
   close(socket_);
   socket_ = 0;
 }
