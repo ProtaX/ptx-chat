@@ -108,9 +108,12 @@ void PtxChatClient::ProcessReceiveMessages() {
     uint8_t buf[sizeof(struct ChatMsgHdr) + MAX_MSG_BUFFER_SIZE];
     ssize_t bytes_in = recv(socket_, buf, sizeof(buf), 0);
     if (bytes_in < 0) {
-      // TODO(me): handle recv errors
       perror("ProcessReceiveMessages: recv ChatMsgHdr");
       continue;
+    }
+    if (bytes_in == 0) {
+      Log("Server disconnected");
+      return;
     }
 
     std::unique_ptr<struct ChatMsg> msg = std::make_unique<struct ChatMsg>();
