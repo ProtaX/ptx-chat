@@ -82,8 +82,8 @@ class PtxChatClient : public GUIBackend {
   struct ThreadState msg_in_thread_;
   struct ThreadState msg_out_thread_;
 
-  SharedUDeque<struct ChatMsg> msg_in_;
-  SharedUDeque<struct ChatMsg> msg_out_;
+  std::unique_ptr<SharedUDeque<struct ChatMsg>> msg_in_;
+  std::unique_ptr<SharedUDeque<struct ChatMsg>> msg_out_;
 
   void SendMsgToServer(std::unique_ptr<struct ChatMsg>&& msg);
 

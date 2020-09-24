@@ -19,6 +19,8 @@ PtxChatClient::PtxChatClient() noexcept {
   server_port_ = DEFAULT_SERVER_PORT;
   nick_ = "";
   socket_ = 0;
+  msg_in_ = std::make_unique<SharedUDeque<struct ChatMsg>>();
+  msg_out_ = std::make_unique<SharedUDeque<struct ChatMsg>>();
   InitLog();
 }
 
@@ -29,6 +31,8 @@ PtxChatClient::PtxChatClient(const std::string& ip, uint16_t port) noexcept {
   server_port_ = port;
   nick_ = "";
   socket_ = 0;
+  msg_in_ = std::make_unique<SharedUDeque<struct ChatMsg>>();
+  msg_out_ = std::make_unique<SharedUDeque<struct ChatMsg>>(); 
   InitLog();
 }
 
@@ -79,7 +83,7 @@ void PtxChatClient::SendMsg(const std::string& text) {
   msg->hdr.buf_len = text.length();
   msg->buf = reinterpret_cast<uint8_t*>(malloc(msg->hdr.buf_len));
   memcpy(msg->buf, text.data(), text.length());
-  msg_out_.push_front(std::move(msg));
+  msg_out_->push_front(std::move(msg));
 }
 
 void PtxChatClient::SendMsgTo(const std::string& to, const std::string& text) {
@@ -90,12 +94,12 @@ void PtxChatClient::SendMsgTo(const std::string& to, const std::string& text) {
   msg->hdr.buf_len = text.length();
   msg->buf = reinterpret_cast<uint8_t*>(malloc(msg->hdr.buf_len));
   memcpy(msg->buf, text.data(), text.length());
-  msg_out_.push_front(std::move(msg));
+  msg_out_->push_front(std::move(msg));
 }
 
 void PtxChatClient::ProcessSendMessages() {
   while (!msg_out_thread_.stop) {
-    std::unique_ptr<struct ChatMsg> msg = std::move(msg_out_.back());
+    std::unique_ptr<struct ChatMsg> msg = std::move(msg_out_->back());
     if (!msg)
       return;
     SendMsgToServer(std::move(msg));
@@ -213,8 +217,8 @@ bool PtxChatClient::SetPort_s(const std::string& port) {
 }
 
 PtxChatClient::~PtxChatClient() {
-  msg_in_.stop(true);
-  msg_out_.stop(true);
+  msg_in_->stop(true);
+  msg_out_->stop(true);
 
   LogOut();
   msg_out_thread_.stop = 1;
