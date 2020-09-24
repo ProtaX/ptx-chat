@@ -3,6 +3,7 @@ cmake_minimum_required(VERSION 3.12.1)
 project(ptx-chat CXX)
 
 set(INCLUDE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/include)
+set(EXT_DIR ${CMAKE_CURRENT_SOURCE_DIR}/ext)
 set(LIB_DIR ${CMAKE_CURRENT_SOURCE_DIR}/lib)
 set(GLFW3_FOUND ON)
 set(GLFW3_INCLUDE_DIRS ${CMAKE_CURRENT_SOURCE_DIR}/ext/nanogui/ext/glfw/include)
