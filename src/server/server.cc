@@ -24,6 +24,7 @@ PtxChatServer::PtxChatServer() noexcept {
   socket_ = 0;
   use_log_ = true;
   stop_ = true;
+  client_msgs_ = std::make_unique<SharedUDeque<struct ChatMsg>>();
   InitSocket();
   InitLog();
 }
@@ -36,6 +37,7 @@ PtxChatServer::PtxChatServer(uint32_t ip, uint16_t port) noexcept {
   socket_ = 0;
   use_log_ = true;
   stop_ = true;
+  client_msgs_ = std::make_unique<SharedUDeque<struct ChatMsg>>();
   InitSocket();
   InitLog();
 }
@@ -52,6 +54,7 @@ PtxChatServer::PtxChatServer(const std::string& ip, uint16_t port) noexcept {
   socket_ = 0;
   listen_q_size_ = 100;
   use_log_ = true;
+  client_msgs_ = std::make_unique<SharedUDeque<struct ChatMsg>>();
   InitSocket();
   InitLog();
 }
@@ -131,6 +134,8 @@ void PtxChatServer::Start() {
   if (!stop_)
     return;
   stop_ = false;
+  client_msgs_->stop(false);
+
   accept_conn_thread_.stop = 0;
   accept_conn_thread_.thread = std::thread(&PtxChatServer::AcceptConnections, this);
   accept_conn_thread_.thread.detach();
@@ -143,7 +148,6 @@ void PtxChatServer::Start() {
   process_msg_thread_.thread = std::thread(&PtxChatServer::ProcessMessages, this);
   process_msg_thread_.thread.detach();
 
-  client_msgs_.stop(false);
 
   PushGuiEvent(GuiEvType::SRV_START, nullptr);
 }
@@ -213,7 +217,7 @@ bool PtxChatServer::RecvMsgFromClient(std::unique_ptr<Client>& cl) {
       return true;
   }
 
-  client_msgs_.push_front(std::move(msg));
+  client_msgs_->push_front(std::move(msg));
   return true;
 }
 
@@ -243,8 +247,8 @@ void PtxChatServer::ReceiveMessages() {
 
 void PtxChatServer::ProcessMessages() {
   Log("ProcessMessages: started");
-  while (!receive_msg_thread_.stop) {
-    std::unique_ptr<struct ChatMsg> msg = std::move(client_msgs_.back());
+  while (!process_msg_thread_.stop) {
+    std::unique_ptr<struct ChatMsg> msg = std::move(client_msgs_->back());
     if (!msg)
       return;
     ParseClientMsg(std::move(msg));
@@ -439,8 +443,8 @@ void PtxChatServer::Stop() {
 
   accepted_clients_.clear();
   registered_clients_.clear();
-  client_msgs_.stop(true);
-  client_msgs_.clear();
+  client_msgs_->stop(true);
+  client_msgs_->clear();
 
   PushGuiEvent(GuiEvType::SRV_STOP, nullptr);
 }

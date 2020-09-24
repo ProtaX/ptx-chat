@@ -12,6 +12,10 @@ namespace ptxchat {
 
 class GUIBackend {
  public:
+  GUIBackend() {
+    gui_events_ = std::make_unique<SharedUDeque<struct GuiEvent>>();
+  }
+
   /**
    * \brief Pop the top element of gui events queue
    * \return Top element 
@@ -27,7 +31,7 @@ class GUIBackend {
   bool PushGuiEvent(GuiEvType t, std::unique_ptr<struct ChatMsg>&& msg);
 
  private:
-  SharedUDeque<struct GuiEvent> gui_events_;
+  std::unique_ptr<SharedUDeque<struct GuiEvent>> gui_events_;
 };
 
 }  // namespace ptxchat

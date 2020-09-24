@@ -72,7 +72,7 @@ class PtxChatServer: public GUIBackend {
   struct ThreadState receive_msg_thread_;  /**< protects clients */
   struct ThreadState process_msg_thread_;  /**< protects client messages */
 
-  SharedUDeque<struct ChatMsg> client_msgs_;
+  std::unique_ptr<SharedUDeque<struct ChatMsg>> client_msgs_;
   std::unordered_map<int, std::unique_ptr<Client>> accepted_clients_;
   std::unordered_map<std::string, std::unique_ptr<Client>> registered_clients_;
   std::mutex clients_mtx_;
