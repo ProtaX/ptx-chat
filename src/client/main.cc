@@ -25,11 +25,14 @@ using ptxchat::GuiEvType;
 using ptxchat::GuiEvent;
 using ptxchat::MAX_MSG_BUFFER_SIZE;
 
-void ProcessChatEvents(TextBox* pub, TextBox* priv) {
+typedef std::vector<TextBox*> text_box_t;
+static constexpr int chat_lines = 5;
+
+void ProcessChatEvents(text_box_t pub, text_box_t priv) {
   while (1) {
     char text[MAX_MSG_BUFFER_SIZE + 32];
     std::unique_ptr<struct GuiEvent> e = client.PopGuiEvent();
-    TextBox* target;
+    text_box_t* target;
     // if (e->type == GuiEvType::Q_EMPTY)
     //   break;
     switch (e->type) {
@@ -49,14 +52,17 @@ void ProcessChatEvents(TextBox* pub, TextBox* priv) {
         break;
       case GuiEvType::PUBLIC_MSG:
         snprintf(text, MAX_MSG_BUFFER_SIZE, "[PUB] %s says: %s\n", e->msg->hdr.from, e->msg->buf);
-        target = pub;
+        target = &pub;
         break;
       case GuiEvType::PRIVATE_MSG:
         snprintf(text, MAX_MSG_BUFFER_SIZE, "[PRV] %s to %s\n", e->msg->hdr.from, e->msg->hdr.to);
-        target = priv;
+        target = &priv;
         break;
     }
-    target->setValue(std::string(text));
+
+    for (size_t i = chat_lines - 1; i > 0; --i)
+      (*target)[i]->setValue((*target)[i-1]->value());
+    (*target)[0]->setValue(std::string(text));
   }
 }
 
@@ -65,11 +71,11 @@ int main(int /* argc */, char** /* argv */) {
   uint16_t port_ = 1488;
   nanogui::init();
   {
-    nanogui::Screen* screen = new nanogui::Screen(Eigen::Vector2i(600, 600), "PTX Chat");
+    nanogui::Screen* screen = new nanogui::Screen({600, 600}, "PTX Chat");
     FormHelper* gui = new FormHelper(screen);
 
     /* Server settings window */
-    ref<Window> server_window = gui->addWindow(Eigen::Vector2i(15, 15), "Server settings");
+    ref<Window> server_window = gui->addWindow({15, 15}, "Server settings");
     server_window->setLayout(new GroupLayout);
     gui->addGroup("Server address");
     gui->addVariable("IP", ip_str_)->setCallback([](const std::string& ip){
@@ -92,9 +98,9 @@ int main(int /* argc */, char** /* argv */) {
     });
 
     /* Send window */
-    ref<Window> send_window = gui->addWindow(Eigen::Vector2i(130, 15), "Send");
+    ref<Window> send_window = gui->addWindow({130, 15}, "Send");
     send_window->setLayout(new GroupLayout);
-    send_window->setSize(Eigen::Vector2i(300, 300));
+    send_window->setSize({300, 300});
     TextBox* to = new TextBox(send_window, "");
     TextBox* text = new TextBox(send_window, "");
     to->setPlaceholder("Send to");
@@ -115,16 +121,29 @@ int main(int /* argc */, char** /* argv */) {
     });
 
     /* Public chat */
-    ref<Window> pub_chat_window = gui->addWindow(Eigen::Vector2i(130, 330), "Public chat");
+    ref<Window> pub_chat_window = gui->addWindow({100, 200}, "Public chat");
     pub_chat_window->setLayout(new GroupLayout);
-    pub_chat_window->setSize(Eigen::Vector2i(300, 300));
-    TextBox* pub_chat = new TextBox(pub_chat_window, "");
+    std::vector<TextBox*> pub_chat;
+    for (int i = 0; i < chat_lines; ++i) {
+      TextBox* t = new TextBox(pub_chat_window, "");
+      t->setAlignment(TextBox::Alignment::Left);
+      t->setSpinnable(false);
+      t->setFixedWidth(80);
+      pub_chat.push_back(t);
+    }
 
     /* Private chat */
-    ref<Window> prv_chat_window = gui->addWindow(Eigen::Vector2i(130, 330), "Private chat");
+    ref<Window> prv_chat_window = gui->addWindow({150, 300}, "Private chat");
     prv_chat_window->setLayout(new GroupLayout);
-    prv_chat_window->setSize(Eigen::Vector2i(300, 300));
-    TextBox* prv_chat = new TextBox(prv_chat_window, "");
+    prv_chat_window->setSize({300, 300});
+    std::vector<TextBox*> prv_chat;
+    for (int i = 0; i < chat_lines; ++i) {
+      TextBox* t = new TextBox(prv_chat_window, "");
+      t->setAlignment(TextBox::Alignment::Left);
+      t->setSpinnable(false);
+      t->setFixedWidth(80);
+      prv_chat.push_back(t);
+    }
 
     std::thread chat_thread(ProcessChatEvents, pub_chat, prv_chat);
     chat_thread.detach();
