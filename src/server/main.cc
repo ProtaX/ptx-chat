@@ -124,6 +124,7 @@ int main(int /* argc */, char** /* argv */) {
     std::vector<TextBox*> log;
     for (int i = 0; i < log_lines; ++i) {
       TextBox* t = new TextBox(log_wrapper, "");
+      t->setEnabled(true);
       t->setAlignment(TextBox::Alignment::Left);
       t->setSpinnable(false);
       t->setFixedWidth(box_w/2 + 30);

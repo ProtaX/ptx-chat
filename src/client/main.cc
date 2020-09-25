@@ -33,30 +33,21 @@ void ProcessChatEvents(text_box_t pub, text_box_t priv) {
     char text[MAX_MSG_BUFFER_SIZE + 32];
     std::unique_ptr<struct GuiEvent> e = client.PopGuiEvent();
     text_box_t* target;
-    // if (e->type == GuiEvType::Q_EMPTY)
-    //   break;
     switch (e->type) {
       case GuiEvType::Q_EMPTY:
         break;
-      case GuiEvType::SRV_START:
-        snprintf(text, MAX_MSG_BUFFER_SIZE, "[SRV] start\n");
-        break;
-      case GuiEvType::SRV_STOP:
-        snprintf(text, MAX_MSG_BUFFER_SIZE, "[SRV] stop\n");
-        break;
-      case GuiEvType::CLIENT_REG:
-        snprintf(text, MAX_MSG_BUFFER_SIZE, "[REG] %s\n", e->msg->hdr.from);
-        break;
-      case GuiEvType::CLIENT_UNREG:
-        snprintf(text, MAX_MSG_BUFFER_SIZE, "[UNR] %s\n", e->msg->hdr.from);
-        break;
       case GuiEvType::PUBLIC_MSG:
-        snprintf(text, MAX_MSG_BUFFER_SIZE, "[PUB] %s says: %s\n", e->msg->hdr.from, e->msg->buf);
+        snprintf(text, MAX_MSG_BUFFER_SIZE, "%s: %s\n", e->msg->hdr.from, e->msg->buf);
         target = &pub;
         break;
       case GuiEvType::PRIVATE_MSG:
-        snprintf(text, MAX_MSG_BUFFER_SIZE, "[PRV] %s to %s\n", e->msg->hdr.from, e->msg->hdr.to);
+        snprintf(text, MAX_MSG_BUFFER_SIZE, "%s: %s\n", e->msg->hdr.from, e->msg->buf);
         target = &priv;
+        break;
+      case GuiEvType::SRV_START:
+      case GuiEvType::SRV_STOP:
+      case GuiEvType::CLIENT_REG:
+      case GuiEvType::CLIENT_UNREG:
         break;
     }
 
@@ -100,20 +91,20 @@ int main(int /* argc */, char** /* argv */) {
     /* Send window */
     ref<Window> send_window = gui->addWindow({130, 15}, "Send");
     send_window->setLayout(new GroupLayout);
-    send_window->setSize({300, 300});
+    send_window->setFixedWidth(150);
     TextBox* to = new TextBox(send_window, "");
     TextBox* text = new TextBox(send_window, "");
     to->setPlaceholder("Send to");
     to->setEditable(true);
-    text->setPlaceholder("Enter message...");
+    text->setPlaceholder("Message...");
     text->setEditable(true);
-    gui->addButton("Send private", [to, text]{
+    gui->addButton("Private", [to, text]{
       if (text->value().length() == 0)
         return;
       client.SendMsgTo(to->value(), text->value());
       text->setValue("");
     });
-    gui->addButton("Send public", [text]{
+    gui->addButton("Public", [text]{
       if (text->value().length() == 0)
         return;
       client.SendMsg(text->value());
@@ -126,9 +117,10 @@ int main(int /* argc */, char** /* argv */) {
     std::vector<TextBox*> pub_chat;
     for (int i = 0; i < chat_lines; ++i) {
       TextBox* t = new TextBox(pub_chat_window, "");
+      t->setEnabled(true);
       t->setAlignment(TextBox::Alignment::Left);
       t->setSpinnable(false);
-      t->setFixedWidth(80);
+      t->setFixedWidth(100);
       pub_chat.push_back(t);
     }
 
@@ -139,9 +131,10 @@ int main(int /* argc */, char** /* argv */) {
     std::vector<TextBox*> prv_chat;
     for (int i = 0; i < chat_lines; ++i) {
       TextBox* t = new TextBox(prv_chat_window, "");
+      t->setEnabled(true);
       t->setAlignment(TextBox::Alignment::Left);
       t->setSpinnable(false);
-      t->setFixedWidth(80);
+      t->setFixedWidth(100);
       prv_chat.push_back(t);
     }
 
