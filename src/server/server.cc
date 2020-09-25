@@ -17,32 +17,33 @@
 
 namespace ptxchat {
 
-PtxChatServer::PtxChatServer() noexcept {
-  ip_ = INADDR_ANY;
-  port_ = 1488;
-  listen_q_size_ = 100;
-  socket_ = 0;
-  use_log_ = true;
-  stop_ = true;
+PtxChatServer::PtxChatServer() noexcept:
+                            ip_(INADDR_ANY),
+                            port_(1488),
+                            listen_q_len_(DEF_LISTEN_Q_LEN),
+                            socket_(0),
+                            is_running_(false) {
   client_msgs_ = std::make_unique<SharedUDeque<struct ChatMsg>>();
   InitSocket();
   InitLog();
 }
 
-PtxChatServer::PtxChatServer(uint32_t ip, uint16_t port) noexcept {
+PtxChatServer::PtxChatServer(uint32_t ip, uint16_t port) noexcept:
+                            ip_(ip),
+                            listen_q_len_(DEF_LISTEN_Q_LEN),
+                            socket_(0),
+                            is_running_(false) {
   CheckPortRange(port);
-  ip_ = ip;
   port_ = port;
-  listen_q_size_ = 100;
-  socket_ = 0;
-  use_log_ = true;
-  stop_ = true;
   client_msgs_ = std::make_unique<SharedUDeque<struct ChatMsg>>();
   InitSocket();
   InitLog();
 }
 
-PtxChatServer::PtxChatServer(const std::string& ip, uint16_t port) noexcept {
+PtxChatServer::PtxChatServer(const std::string& ip, uint16_t port) noexcept:
+                            listen_q_len_(DEF_LISTEN_Q_LEN),
+                            socket_(0),
+                            is_running_(false) {
   CheckPortRange(port);
   struct in_addr ip_addr;
   if (inet_pton(AF_INET, ip.c_str(), &ip_addr) <= 0) {
@@ -51,9 +52,6 @@ PtxChatServer::PtxChatServer(const std::string& ip, uint16_t port) noexcept {
   }
   ip_ = ip_addr.s_addr;
   port_ = port;
-  socket_ = 0;
-  listen_q_size_ = 100;
-  use_log_ = true;
   client_msgs_ = std::make_unique<SharedUDeque<struct ChatMsg>>();
   InitSocket();
   InitLog();
@@ -64,7 +62,7 @@ void PtxChatServer::SetListenQueueSize(int size) {
     std::cout << "Error: max listen queue size cannot be greater than " << MAX_LISTEN_Q_SIZE << std::endl;
     exit(-1);
   }
-  listen_q_size_ = size;
+  listen_q_len_ = size;
 }
 
 void PtxChatServer::InitSocket() {
@@ -89,7 +87,7 @@ void PtxChatServer::InitSocket() {
     exit(-1);
   }
 
-  if (listen(skt, listen_q_size_) < 0) {
+  if (listen(skt, listen_q_len_) < 0) {
     perror("listen");
     exit(-1);
   }
@@ -131,9 +129,11 @@ bool PtxChatServer::SetPort_s(const std::string& port) {
 }
 
 void PtxChatServer::Start() {
-  if (!stop_)
+  if (is_running_) {
+    logger_->log(spdlog::level::err, "Cannot start server: server is already running");
     return;
-  stop_ = false;
+  }
+  is_running_ = true;
   client_msgs_->stop(false);
 
   accept_conn_thread_.stop = 0;
@@ -149,26 +149,25 @@ void PtxChatServer::Start() {
   process_msg_thread_.thread.detach();
 
   PushGuiEvent(GuiEvType::SRV_START, nullptr);
+  logger_->log(spdlog::level::info, "Server started");
 }
 
 void PtxChatServer::AcceptConnections() {
-  Log("AcceptConnections: started");
+  logger_->log(spdlog::level::debug, "AcceptConnections thread started");
   while (!accept_conn_thread_.stop) {
     struct sockaddr_in cl_addr;
     socklen_t cl_len = sizeof(cl_addr);
     int cl_fd = accept(socket_, reinterpret_cast<struct sockaddr*>(&cl_addr), &cl_len);
-    // TODO(me): error handling for known sockets - forget clients
     if (cl_fd < 0) {
-      if (accept_conn_thread_.stop)
-        return;
-      perror("accept");
-      return;
+      logger_->log(spdlog::level::critical, strerror(errno));
+      PtxChatCrash();
     }
-    Log("Client accepted");
+    logger_->log(spdlog::level::info, "Client " + std::to_string(cl_addr.sin_addr.s_addr) +
+                 std::to_string(cl_addr.sin_port) + ", skt " + std::to_string(cl_fd) + " accepted");
     std::unique_ptr<Client> client = std::make_unique<Client>(cl_fd, cl_addr.sin_addr.s_addr, cl_addr.sin_port);
     accepted_clients_.emplace(cl_fd, std::move(client));
   }
-  Log("AcceptConnections: finished");
+  logger_->log(spdlog::level::debug, "AcceptConnections thread finished");
 }
 
 bool PtxChatServer::RecvMsgFromClient(std::unique_ptr<Client>& cl) {
@@ -177,7 +176,7 @@ bool PtxChatServer::RecvMsgFromClient(std::unique_ptr<Client>& cl) {
   ssize_t rec_bytes_hdr = recv(client_fd, raw_hdr, sizeof(raw_hdr), MSG_DONTWAIT);
   /* Client disconnected */
   if (rec_bytes_hdr == 0) {
-    Log("Client disconnected");
+    logger_->log(spdlog::level::info, "Client " + std::to_string(cl->GetSocket()) + ": disconnected");
     return false;
   }
   if (rec_bytes_hdr < 0) {
@@ -186,20 +185,21 @@ bool PtxChatServer::RecvMsgFromClient(std::unique_ptr<Client>& cl) {
       return true;
 
     /* Connection lost */
-    if (errno == ECONNREFUSED || errno == ENOTCONN || errno == ENOTSOCK) {
-      Log("Client connection lost");
+    if (errno == ECONNREFUSED) {
+      logger_->log(spdlog::level::err, "Client " + std::to_string(cl->GetSocket()) + ": connection refused");
       return false;
     }
 
-    Stop();  // TODO(me): crash, not stop
-    return true;
+    logger_->log(spdlog::level::critical, "recv() for client " + std::to_string(cl->GetSocket()) +
+                 " returned errno: " + strerror(errno));
+    PtxChatCrash();
   }
 
-  Log("Client msg receicved");
+  logger_->log(spdlog::level::debug, "Recv message header from client " + std::to_string(cl->GetSocket()));
   struct ChatMsgHdr* hdr = reinterpret_cast<struct ChatMsgHdr*>(raw_hdr);
   size_t buf_len = hdr->buf_len;
   if (buf_len > MAX_MSG_BUFFER_SIZE)
-    Log("ReceiveMessages: Warning: message buffer is too big");
+    logger_->log(spdlog::level::err, "Message buffer from " + std::to_string(cl->GetSocket()) + " is too big");
   std::unique_ptr<struct ChatMsg> msg = std::make_unique<struct ChatMsg>();
 
   struct sockaddr_in cl_addr;
@@ -212,18 +212,30 @@ bool PtxChatServer::RecvMsgFromClient(std::unique_ptr<Client>& cl) {
   if (buf_len != 0) {
     msg->buf = reinterpret_cast<uint8_t*>(malloc(buf_len));
     ssize_t rec_bytes_buf = recv(client_fd, msg->buf, buf_len, 0);
-    if (rec_bytes_buf < 0)
-      return true;
+    if (rec_bytes_buf == 0) {
+      logger_->log(spdlog::level::info, "Client " + std::to_string(cl->GetSocket()) + ": disconnected");
+      return false;
+    }
+    if (rec_bytes_buf < 0) {
+      if (errno == ECONNREFUSED) {
+        logger_->log(spdlog::level::err, "Client " + std::to_string(cl->GetSocket()) + ": connection refused");
+        return false;
+      }
+      logger_->log(spdlog::level::critical, "recv() for client " + std::to_string(cl->GetSocket()) +
+                 " returned errno: " + strerror(errno));
+      PtxChatCrash();
+    }
   }
 
+  logger_->log(spdlog::level::debug, "Recv message buf from client " + std::to_string(cl->GetSocket()));
   client_msgs_->push_front(std::move(msg));
   return true;
 }
 
 void PtxChatServer::ReceiveMessages() {
-  Log("ReceiveMessages: started");
+  logger_->log(spdlog::level::debug, "ReceiveMessages thread started");
   while (!receive_msg_thread_.stop) {
-    std::this_thread::sleep_for(std::chrono::milliseconds(SERVER_TICK));
+    std::this_thread::sleep_for(std::chrono::milliseconds(RECV_MESSAGES_SLEEP));
 
     std::unique_lock<std::mutex> lc_storage(clients_mtx_);
     for (auto it = accepted_clients_.begin(); it != accepted_clients_.end(); ) {
@@ -241,18 +253,20 @@ void PtxChatServer::ReceiveMessages() {
         ++it;
     }
   }
-  Log("ReceiveMessages: finished");
+  logger_->log(spdlog::level::debug, "ReceiveMessages thread finished");
 }
 
 void PtxChatServer::ProcessMessages() {
-  Log("ProcessMessages: started");
+  logger_->log(spdlog::level::debug, "ProcessMessages thread started");
   while (!process_msg_thread_.stop) {
     std::unique_ptr<struct ChatMsg> msg = std::move(client_msgs_->back());
-    if (!msg)
+    if (!msg) {
+      logger_->log(spdlog::level::debug, "Client messages queue stopped");
       return;
+    }
     ParseClientMsg(std::move(msg));
   }
-  Log("ProcessMessages: finished");
+  logger_->log(spdlog::level::debug, "ProcessMessages thread finished");
 }
 
 void PtxChatServer::ProcessRegMsg(std::unique_ptr<struct ChatMsg>&& msg) {
@@ -263,7 +277,7 @@ void PtxChatServer::ProcessRegMsg(std::unique_ptr<struct ChatMsg>&& msg) {
   std::unique_lock<std::mutex> lc_storage(clients_mtx_);
   auto res = registered_clients_.find(nick);
   if (res != registered_clients_.end()) {
-    Log("ProcessRegMsg: error: client alredy registered with given nickname");
+    logger_->log(spdlog::level::info, "Client already registered with given nickname: " + std::string(nick));
     return;
   }
 
@@ -272,7 +286,7 @@ void PtxChatServer::ProcessRegMsg(std::unique_ptr<struct ChatMsg>&& msg) {
     if (client->GetIp() == ip && client->GetPort() == port) {
       std::unique_ptr<struct ChatMsg> reply = std::make_unique<struct ChatMsg>();
       if (!client->Register(nick)) {
-        Log("ProcessRegMsg: error: bad client nickanme");
+        logger_->log(spdlog::level::info, "Cannot register client with given nickname: " + std::string(nick));
         return;  // TODO(me): send error to client
       }
 
@@ -282,12 +296,12 @@ void PtxChatServer::ProcessRegMsg(std::unique_ptr<struct ChatMsg>&& msg) {
       reply->hdr = ChatMsgHdr{MsgType::ERR_REGISTERED, ip_, port_, "ChatServer", "", 0};
       strcpy(reply->hdr.from, nick);
       PushGuiEvent(GuiEvType::CLIENT_REG, std::move(reply));
-      Log("ProcessRegMsg: client registered");
+      logger_->log(spdlog::level::info, "Client registered: " + std::string(nick));
       return;
     }
   }
 
-  Log("ProcessRegMsg: error: client not found");
+  logger_->log(spdlog::level::err, "Cannot register client " + std::string(nick) + ": client was not accepted: ");
 }
 
 void PtxChatServer::ProcessUnregMsg(std::unique_ptr<struct ChatMsg>&& msg) {
@@ -298,7 +312,7 @@ void PtxChatServer::ProcessUnregMsg(std::unique_ptr<struct ChatMsg>&& msg) {
   std::unique_lock<std::mutex> lc_storage(clients_mtx_);
   auto res = registered_clients_.find(std::string(nick));
   if (res == registered_clients_.end()) {
-    Log("ProcessUnregMsg: error: client not found");
+    logger_->log(spdlog::level::err, "Cannot unregister client " + std::string(nick) + ": already registered");
     return;
   }
   std::unique_ptr<Client>& client = res->second;
@@ -310,24 +324,24 @@ void PtxChatServer::ProcessUnregMsg(std::unique_ptr<struct ChatMsg>&& msg) {
     std::unique_ptr<struct ChatMsg> gui_repl = std::make_unique<struct ChatMsg>();
     strcpy(gui_repl->hdr.from, nick);
     PushGuiEvent(GuiEvType::CLIENT_UNREG, std::move(gui_repl));
-    Log("ProcessUnregMsg: client unregistered");
+    logger_->log(spdlog::level::info, "Client " + std::string(nick) + " unregistered");
     return;
   }
 
-  Log("ProcessUnregMsg: error: fot unreg msg from another address");
+  logger_->log(spdlog::level::err, "Cannot unregister client " + std::string(nick) + ": was registered from another address");
 }
 
 void PtxChatServer::ProcessPrivateMsg(std::unique_ptr<struct ChatMsg>&& msg) {
   std::unique_lock<std::mutex> lc_storage(clients_mtx_);
   auto from = registered_clients_.find(msg->hdr.from);
   if (from == registered_clients_.end()) {
-    Log("ProcessPrivateMsg: error: from not found");
+    logger_->log(spdlog::level::err, "Cannot send private message from " + std::string(msg->hdr.from) + ": client not registered");
     return;
   }
 
   auto to = registered_clients_.find(msg->hdr.to);
   if (to == registered_clients_.end()) {
-    Log("ProcessPrivateMsg: error: to not found");
+    logger_->log(spdlog::level::info, "Cannot send private message to " + std::string(msg->hdr.to) + ": client not registered");
     return;
   }
   clients_mtx_.unlock();
@@ -341,7 +355,7 @@ void PtxChatServer::ProcessPublicMsg(std::unique_ptr<struct ChatMsg>&& msg) {
 
   std::unique_lock<std::mutex> lc_storage(clients_mtx_);
   if (registered_clients_.find(nick) == registered_clients_.end()) {
-    Log("ProcessPublicMsg: Error: client not found");
+    logger_->log(spdlog::level::info, "Cannot send public message from " + std::string(msg->hdr.from) + ": client not registered");
     return;
   }
   clients_mtx_.unlock();
@@ -372,24 +386,38 @@ void PtxChatServer::ParseClientMsg(std::unique_ptr<struct ChatMsg>&& msg) {
 }
 
 bool PtxChatServer::SendMsgToClient(std::unique_ptr<struct ChatMsg>&& msg, std::unique_ptr<Client>& client) {
-  if (send(client->GetSocket(), &msg->hdr, sizeof(struct ChatMsgHdr), 0) < 0) {
-    if (errno == ECONNRESET)
+  ssize_t hdr_bytes_sent = send(client->GetSocket(), &msg->hdr, sizeof(struct ChatMsgHdr), 0);
+  if (hdr_bytes_sent == 0) {
+    logger_->log(spdlog::level::info, "Cannot send private message to " + std::string(msg->hdr.to) + ": client disconnected");
+    return false;
+  }
+  if (hdr_bytes_sent < 0) {
+    if (errno == ECONNRESET) {
+      logger_->log(spdlog::level::err, "Cannot send private message to " + std::string(msg->hdr.to) + ": connection reset");
       return false;
-    Log("SendMsgToClient: error: send hdr");
+    }
+    logger_->log(spdlog::level::err, "Cannot send private message to " + std::string(msg->hdr.to) + ": " + strerror(errno));
     return false;
   }
 
   if (msg->hdr.buf_len) {
-    if (send(client->GetSocket(), msg->buf, msg->hdr.buf_len, 0) < 0) {
-      if (errno == ECONNRESET)
+    ssize_t buf_bytes_sent = send(client->GetSocket(), msg->buf, msg->hdr.buf_len, 0);
+    if (buf_bytes_sent == 0) {
+      logger_->log(spdlog::level::info, "Cannot send private message to " + std::string(msg->hdr.to) + ": client disconnected");
+      return false;
+    }
+    if (buf_bytes_sent < 0) {
+      if (errno == ECONNRESET) {
+        logger_->log(spdlog::level::err, "Cannot send private message to " + std::string(msg->hdr.to) + ": connection reset");
         return false;
-      Log("SendMsgToClient: error: send buf");
+      }
+      logger_->log(spdlog::level::err, "Cannot send private message to " + std::string(msg->hdr.to) + ": " + strerror(errno));
       return false;
     }
   }
 
+  logger_->log(spdlog::level::debug, "Private message from " + std::string(msg->hdr.from) + " sent to " + std::string(msg->hdr.to));
   PushGuiEvent(GuiEvType::PRIVATE_MSG, std::move(msg));
-  Log("SendMsgToClient: message sent");
   return true;
 }
 
@@ -398,35 +426,45 @@ void PtxChatServer::SendMsgToAll(std::unique_ptr<struct ChatMsg>&& msg) {
   for (auto it = registered_clients_.begin(); it != registered_clients_.end(); ++it) {
     std::unique_ptr<Client>& client = it->second;
     int c_fd = client->GetSocket();
-    ssize_t sent_hdr_bytes = send(c_fd, &msg->hdr, sizeof(struct ChatMsgHdr), 0);
-    if (sent_hdr_bytes < 0) {
+    ssize_t hdr_bytes_sent = send(c_fd, &msg->hdr, sizeof(struct ChatMsgHdr), 0);
+    if (hdr_bytes_sent == 0) {
+      logger_->log(spdlog::level::info, "Cannot send public message from " + std::string(msg->hdr.from) + ": client disconnected");
+      continue;
+    }
+    if (hdr_bytes_sent < 0) {
       if (errno == ECONNRESET) {
-        it = registered_clients_.erase(it);
+        logger_->log(spdlog::level::err, "Cannot send public message from " + std::string(msg->hdr.from) + ": connection reset");
         continue;
       }
-      Log("SendMsgToClient: error: send hdr");
+      logger_->log(spdlog::level::err, "Cannot send public message from " + std::string(msg->hdr.from) + ": " + strerror(errno));
       continue;
     }
 
-    ssize_t sent_buf_bytes = send(c_fd, msg->buf, msg->hdr.buf_len, 0);
-    if (sent_buf_bytes < 0) {
+    ssize_t buf_bytes_sent = send(c_fd, msg->buf, msg->hdr.buf_len, 0);
+    if (buf_bytes_sent == 0) {
+      logger_->log(spdlog::level::info, "Cannot send public message from " + std::string(msg->hdr.from) + ": client disconnected");
+      continue;
+    }
+    if (buf_bytes_sent < 0) {
       if (errno == ECONNRESET) {
-        it = registered_clients_.erase(it);
+        logger_->log(spdlog::level::err, "Cannot send public message from " + std::string(msg->hdr.from) + ": connection reset");
         continue;
       }
-      Log("SendMsgToClient: error: send buf");
+      logger_->log(spdlog::level::err, "Cannot send public message from " + std::string(msg->hdr.from) + ": " + strerror(errno));
       continue;
     }
   }
 
+  logger_->log(spdlog::level::info, "Public message from " + std::string(msg->hdr.from) + ": sent");
   PushGuiEvent(GuiEvType::PUBLIC_MSG, std::move(msg));
-  Log("SendMsgToAll: message sent");
 }
 
 void PtxChatServer::Stop() {
-  if (stop_)
+  if (!is_running_) {
+    logger_->log(spdlog::level::err, "Cannot stop server: server already stopped");
     return;
-  stop_ = true;
+  }
+  is_running_ = false;
 
   accept_conn_thread_.mtx.lock();
   accept_conn_thread_.stop = 1;
@@ -445,11 +483,11 @@ void PtxChatServer::Stop() {
   client_msgs_->stop(true);
   // client_msgs_->clear();
 
+  logger_->log(spdlog::level::info, "Server stopped");
   PushGuiEvent(GuiEvType::SRV_STOP, nullptr);
 }
 
 void PtxChatServer::Finalize() {
-  log_file_.close();
   Stop();
   if (socket_) {
     shutdown(socket_, SHUT_RDWR);
@@ -458,20 +496,8 @@ void PtxChatServer::Finalize() {
 }
 
 void PtxChatServer::InitLog() {
-  log_file_.open("server.log");
-}
-
-void PtxChatServer::Log(const char* msg) {
-  std::lock_guard<std::mutex> lc(log_mtx_);
-  if (use_log_) {
-    char time_s[32];
-    time_t log_time = time(0);
-    struct tm log_local_time;
-    localtime_r(&log_time, &log_local_time);
-    strftime(time_s, 32, "[%d-%m-%Y %H:%M:%S] ", &log_local_time);
-    std::thread::id t = std::this_thread::get_id();
-    log_file_ << time_s << "[" << t << "] " << msg << std::endl;
-  }
+  logger_ = spdlog::rotating_logger_mt("PTX Server", DEF_SERVER_LOG_PATH,
+                                       MAX_LOG_FILE_SIZE, MAX_LOG_FILES_CNT);
 }
 
 PtxChatServer::~PtxChatServer() {

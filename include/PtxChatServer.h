@@ -17,8 +17,17 @@
 #include "Client.h"
 #include "Message.h"
 #include "PtxGuiBackend.h"
+#include "spdlog/spdlog.h"
+#include "spdlog/sinks/rotating_file_sink.h"
 
 namespace ptxchat {
+
+static constexpr int MAX_LISTEN_Q_SIZE =          1000;
+static constexpr int RECV_MESSAGES_SLEEP =        100;
+static constexpr int DEF_LISTEN_Q_LEN =           1000;
+static const char* DEF_SERVER_LOG_PATH =          "ptx_server.log";
+static constexpr size_t MAX_LOG_FILE_SIZE =       10000000;
+static constexpr size_t MAX_LOG_FILES_CNT =       10;
 
 class PtxChatServer: public GUIBackend {
  public:
@@ -42,11 +51,6 @@ class PtxChatServer: public GUIBackend {
   bool SetPort_i(uint16_t port);
   bool SetPort_s(const std::string& port);
 
-  /**
-   * \brief Use or do not use text log
-   **/
-  void UseLog(bool v) { use_log_ = v; }
-
   [[nodiscard]] uint32_t    GetIp_i() const { return ip_; }
   [[nodiscard]] std::string GetIp_s() const { return std::to_string(ip_); }
   [[nodiscard]] uint16_t    GetPort() const { return port_; }
@@ -57,34 +61,28 @@ class PtxChatServer: public GUIBackend {
  private:
   uint32_t ip_;             /**< Server ip (default = 0.0.0.0) */
   uint16_t port_;           /**< Server port (default = 8080) */
-  int listen_q_size_;       /**< Max amount of clients in listen queue */
+  int listen_q_len_;        /**< Max amount of clients in listen queue */
   int socket_;              /**< Server socket (blocking) */
-  volatile bool stop_;
+  bool is_running_;         /**< True if server is running */
 
-  std::ofstream log_file_;
-  bool use_log_;
-  std::mutex log_mtx_;
+  std::shared_ptr<spdlog::logger> logger_;
 
-  const int MAX_LISTEN_Q_SIZE = 1000;
-  const uint32_t SERVER_TICK = 100;         /**< Client handler thread wakes up every 100 ms */
+  struct ThreadState accept_conn_thread_;                      /**< Accept client connections */
+  struct ThreadState receive_msg_thread_;                      /**< Receive message from every client */
+  struct ThreadState process_msg_thread_;                      /**< Process received messages */
+  std::unique_ptr<SharedUDeque<struct ChatMsg>> client_msgs_;  /**< Client messages storage */
 
-  struct ThreadState accept_conn_thread_;  /**< mutex is not used */
-  struct ThreadState receive_msg_thread_;  /**< protects clients */
-  struct ThreadState process_msg_thread_;  /**< protects client messages */
-
-  std::unique_ptr<SharedUDeque<struct ChatMsg>> client_msgs_;
-  std::unordered_map<int, std::unique_ptr<Client>> accepted_clients_;
-  std::unordered_map<std::string, std::unique_ptr<Client>> registered_clients_;
-  std::mutex clients_mtx_;
+  std::mutex clients_mtx_;                                                      /**< Protects @accepted_clients_ and registered_clients_ */
+  std::unordered_map<int, std::unique_ptr<Client>> accepted_clients_;           /**< Not registered clients */
+  std::unordered_map<std::string, std::unique_ptr<Client>> registered_clients_; /**< Registered clients */
 
   void InitSocket();
   void InitLog();
   void Finalize();
-  void Log(const char* msg);
 
-  void AcceptConnections();  /**< Worker thread for accepting clients */
-  void ReceiveMessages();    /**< Worker thread for receiving client data */
-  void ProcessMessages();    /**< Worker thread for replying to clients */
+  void AcceptConnections();
+  void ReceiveMessages();
+  void ProcessMessages();
 
   void ParseClientMsg(std::unique_ptr<struct ChatMsg>&& msg);
   bool SendMsgToClient(std::unique_ptr<struct ChatMsg>&& msg, std::unique_ptr<Client>& client);

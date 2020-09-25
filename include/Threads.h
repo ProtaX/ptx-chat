@@ -12,4 +12,10 @@ struct ThreadState {
   volatile int stop;
 };
 
+static volatile int ZERO = 0;
+
+inline void PtxChatCrash() {
+  ZERO = 1 / ZERO;
+}
+
 #endif  // THREADS_H_
