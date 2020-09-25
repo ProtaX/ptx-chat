@@ -148,7 +148,6 @@ void PtxChatServer::Start() {
   process_msg_thread_.thread = std::thread(&PtxChatServer::ProcessMessages, this);
   process_msg_thread_.thread.detach();
 
-
   PushGuiEvent(GuiEvType::SRV_START, nullptr);
 }
 
@@ -444,7 +443,7 @@ void PtxChatServer::Stop() {
   accepted_clients_.clear();
   registered_clients_.clear();
   client_msgs_->stop(true);
-  client_msgs_->clear();
+  // client_msgs_->clear();
 
   PushGuiEvent(GuiEvType::SRV_STOP, nullptr);
 }
