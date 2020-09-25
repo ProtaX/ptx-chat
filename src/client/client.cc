@@ -116,6 +116,7 @@ void PtxChatClient::ProcessReceiveMessages() {
       continue;
     }
     if (bytes_in == 0) {
+      Stop();
       Log("Server disconnected");
       return;
     }
@@ -216,13 +217,17 @@ bool PtxChatClient::SetPort_s(const std::string& port) {
   return true;
 }
 
-PtxChatClient::~PtxChatClient() {
+void PtxChatClient::Stop() {
   msg_in_->stop(true);
   msg_out_->stop(true);
 
-  LogOut();
   msg_out_thread_.stop = 1;
   msg_in_thread_.stop = 1;
+}
+
+PtxChatClient::~PtxChatClient() {
+  Stop();
+  LogOut();
 
   shutdown(socket_, SHUT_RD);
   close(socket_);

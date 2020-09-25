@@ -91,6 +91,7 @@ class PtxChatClient : public GUIBackend {
   void ProcessSendMessages();
   void InitLog();
   void Log(const std::string& text);
+  void Stop();
 };
 
 }  // namespace ptxchat
