@@ -17,8 +17,9 @@ target_compile_features(project_options INTERFACE cxx_std_17)
 # Build targets
 include(cmake/StandardProjectSettings.cmake)
 
-# NanoGUI
+# externals
 include(cmake/NanoGUI.cmake)
+include(cmake/spdlog.cmake)
 
 # Enable all warnings
 add_library(project_warnings INTERFACE)
@@ -26,7 +27,7 @@ include(cmake/CompilerWarnings.cmake)
 set_project_warnings(project_warnings)
 
 # Enable ccache
-#include(cmake/Cache.cmake)
+include(cmake/Cache.cmake)
 
 # Pre-compiled headers
 option(ENABLE_PCH "Enable Precompiled Headers" OFF)
@@ -38,7 +39,8 @@ if(ENABLE_PCH)
     <string>
     <map>
     <utility>
-    <memory>)
+    <memory>
+    <nanogui/nanogui.h>)
 endif()
 
 # Tests
