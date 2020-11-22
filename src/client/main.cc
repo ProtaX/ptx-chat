@@ -7,7 +7,7 @@
 #include <thread>
 #include <iostream>
 
-#include "PtxChatClient.h"
+#include "client.h"
 #include "Message.h"
 
 static ptxchat::PtxChatClient client;

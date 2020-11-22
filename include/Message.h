@@ -5,20 +5,18 @@
 #include <memory>
 #include <utility>
 
-#include "Client.h"
-
 namespace ptxchat {
 
 constexpr size_t MAX_MSG_BUFFER_SIZE = 256;
+constexpr size_t MAX_NICKNAME_LEN = 64;
 
 enum class MsgType {
-  REGISTER,
-  UNREGISTER,
-  PRIVATE_DATA,
-  PUBLIC_DATA,
-  ERR_UNREGISTERED,
-  ERR_REGISTERED,
+  REGISTER,     REGISTERED,   ERR_REGISTERED,
+  UNREGISTER,   UNREGISTERED, ERR_UNREGISTERED,
+  PRIVATE_DATA, PUBLIC_DATA,
   ERR_UNKNOWN,
+  QUIT,  // TODO: impl
+  PING, PONG,  // TODO: impl
 };
 
 enum class GuiEvType {
@@ -40,7 +38,7 @@ struct GuiEvent {
   }
 
   GuiEvType type;
-  std::unique_ptr<struct ChatMsg> msg;
+  std::shared_ptr<struct ChatMsg> msg;
 };
 
 #pragma pack(push, 1)
@@ -54,7 +52,6 @@ struct ChatMsgHdr {
   size_t buf_len;
 };
 
-// TODO(me): pool for message buffers
 struct ChatMsg {
   ChatMsg() noexcept: buf(nullptr) {}
   ~ChatMsg() { if (buf) free(buf); }
@@ -65,6 +62,6 @@ struct ChatMsg {
 
 #pragma pack(push)
 
-}  // namespace ptxchat
+} // namespace ptxchat
 
-#endif  // MESSAGE_H_
+#endif // MESSAGE_H_

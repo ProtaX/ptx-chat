@@ -1,4 +1,4 @@
-#include "PtxChatClient.h"
+#include "client.h"
 
 #include <arpa/inet.h>
 #include <sys/types.h>
@@ -9,8 +9,10 @@
 
 #include <memory>
 #include <iostream>
+#include <string.h>
 
 #include "Message.h"
+#include "log.h"
 
 namespace ptxchat {
 
@@ -19,9 +21,10 @@ PtxChatClient::PtxChatClient() noexcept {
   server_port_ = DEFAULT_SERVER_PORT;
   nick_ = "";
   socket_ = 0;
-  msg_in_ = std::make_unique<SharedUDeque<struct ChatMsg>>();
-  msg_out_ = std::make_unique<SharedUDeque<struct ChatMsg>>();
-  InitLog();
+  msg_in_ = std::make_unique<SharedUDeque<ChatMsg>>();
+  msg_out_ = std::make_unique<SharedUDeque<ChatMsg>>();
+  registered_ = false;
+  InitRotatingLogger("PTX Client");
 }
 
 PtxChatClient::PtxChatClient(const std::string& ip, uint16_t port) noexcept {
@@ -31,9 +34,10 @@ PtxChatClient::PtxChatClient(const std::string& ip, uint16_t port) noexcept {
   server_port_ = port;
   nick_ = "";
   socket_ = 0;
-  msg_in_ = std::make_unique<SharedUDeque<struct ChatMsg>>();
-  msg_out_ = std::make_unique<SharedUDeque<struct ChatMsg>>(); 
-  InitLog();
+  msg_in_ = std::make_unique<SharedUDeque<ChatMsg>>();
+  msg_out_ = std::make_unique<SharedUDeque<ChatMsg>>();
+  registered_ = false;
+  InitRotatingLogger("PTX Client");
 }
 
 void PtxChatClient::LogIn(const std::string& nick) {
@@ -46,19 +50,19 @@ void PtxChatClient::LogIn(const std::string& nick) {
 
   int skt = socket(AF_INET, SOCK_STREAM, 0);
   if (skt < 0) {
-    perror("LogIn: socket");
+    logger_->log(spdlog::level::critical, "LogIn: socket() " + std::string(strerror(errno)));
     return;
   }
 
   if (connect(skt, reinterpret_cast<struct sockaddr*>(&serv_addr), sizeof(serv_addr)) < 0) {
-    perror("LogIn: connect");
+    logger_->log(spdlog::level::critical, "LogIn: connect() " + std::string(strerror(errno)));
     return;
   }
 
   serv_addr_ = serv_addr;
   socket_ = skt;
   nick_ = nick;
-  std::unique_ptr<struct ChatMsg> msg = std::make_unique<struct ChatMsg>();
+  auto msg = std::make_unique<ChatMsg>();
   strcpy(msg->hdr.from, nick_.c_str());
   msg->hdr.type = MsgType::REGISTER;
   msg->hdr.buf_len = 0;
@@ -77,7 +81,7 @@ void PtxChatClient::LogIn(const std::string& nick) {
 }
 
 void PtxChatClient::SendMsg(const std::string& text) {
-  std::unique_ptr<struct ChatMsg> msg = std::make_unique<struct ChatMsg>();
+  auto msg = std::make_unique<ChatMsg>();
   strcpy(msg->hdr.from, nick_.c_str());
   msg->hdr.type = MsgType::PUBLIC_DATA;
   msg->hdr.buf_len = text.length();
@@ -87,7 +91,7 @@ void PtxChatClient::SendMsg(const std::string& text) {
 }
 
 void PtxChatClient::SendMsgTo(const std::string& to, const std::string& text) {
-  std::unique_ptr<struct ChatMsg> msg = std::make_unique<struct ChatMsg>();
+  auto msg = std::make_unique<ChatMsg>();
   strcpy(msg->hdr.from, nick_.c_str());
   strcpy(msg->hdr.to, to.c_str());
   msg->hdr.type = MsgType::PRIVATE_DATA;
@@ -99,10 +103,11 @@ void PtxChatClient::SendMsgTo(const std::string& to, const std::string& text) {
 
 void PtxChatClient::ProcessSendMessages() {
   while (!msg_out_thread_.stop) {
-    std::unique_ptr<struct ChatMsg> msg = std::move(msg_out_->back());
+    std::unique_ptr<ChatMsg> msg = std::move(msg_out_->back());
     if (!msg)
       return;
-    SendMsgToServer(std::move(msg));
+    std::shared_ptr<ChatMsg> s_msg(msg.release());
+    SendMsgToServer(s_msg);
   }
 }
 
@@ -112,83 +117,94 @@ void PtxChatClient::ProcessReceiveMessages() {
     uint8_t buf[sizeof(struct ChatMsgHdr) + MAX_MSG_BUFFER_SIZE];
     ssize_t bytes_in = recv(socket_, buf, sizeof(buf), 0);
     if (bytes_in < 0) {
-      perror("ProcessReceiveMessages: recv ChatMsgHdr");
+      logger_->log(spdlog::level::err, "ProcessReceiveMessages: recv() " + std::string(strerror(errno)));
       continue;
     }
     if (bytes_in == 0) {
       Stop();
-      Log("Server disconnected");
-      return;
+      logger_->log(spdlog::level::critical, "ProcessReceiveMessages: server disconnected");
+      return; // TODO: reconnect
     }
 
-    std::unique_ptr<struct ChatMsg> msg = std::make_unique<struct ChatMsg>();
-    msg->hdr = *reinterpret_cast<struct ChatMsgHdr*>(buf);
+    auto msg = std::make_shared<ChatMsg>();
+    msg->hdr = *reinterpret_cast<ChatMsgHdr*>(buf);
     size_t buf_len = msg->hdr.buf_len;
     if (buf_len > MAX_MSG_BUFFER_SIZE)
       continue;
     if (buf_len != 0) {
       msg->buf = reinterpret_cast<uint8_t*>(malloc(buf_len));
-      memcpy(msg->buf, buf+sizeof(struct ChatMsgHdr), buf_len);
+      memcpy(msg->buf, buf+sizeof(ChatMsgHdr), buf_len);
+      std::string text = std::string(reinterpret_cast<char*>(msg->buf));
+      logger_->log(spdlog::level::debug, "ProcessReceiveMessages: received message from " + std::string(msg->hdr.from) + ": " + text);
     }
-    std::string text = std::string(reinterpret_cast<char*>(msg->buf));
-    Log(text);
 
     switch (msg->hdr.type) {
       case MsgType::PUBLIC_DATA:
-        PushGuiEvent(GuiEvType::PUBLIC_MSG, std::move(msg));
+        PushGuiEvent(GuiEvType::PUBLIC_MSG, msg);
         break;
       case MsgType::PRIVATE_DATA:
-        PushGuiEvent(GuiEvType::PRIVATE_MSG, std::move(msg));
+        PushGuiEvent(GuiEvType::PRIVATE_MSG, msg);
+        break;
+      case MsgType::REGISTERED:
+        ProcessRegisteredMsg(msg);
+        break;
+      case MsgType::UNREGISTERED:
+        ProcessUnregisteredMsg(msg);
         break;
       default:
+        ProcessErrorMsg(msg);
         break;
     }
   }
+}
+
+void PtxChatClient::ProcessRegisteredMsg(std::shared_ptr<ChatMsg> msg) {
+  if (strcmp(msg->hdr.from, "Server"))
+    return;
+  registered_ = true;
+  logger_->log(spdlog::level::info, "ProcessRegisteredMsg: client registered on server");
+  // TODO: push to GUI
+}
+
+void PtxChatClient::ProcessUnregisteredMsg(std::shared_ptr<ChatMsg> msg) {
+  if (strcmp(msg->hdr.from, "Server"))
+    return;
+  registered_ = false;
+  logger_->log(spdlog::level::info, "ProcessUnregisteredMsg: client unregistered on server");
+  // TODO: push to GUI
+}
+
+void PtxChatClient::ProcessErrorMsg(std::shared_ptr<ChatMsg> msg) {
+  logger_->log(spdlog::level::err, "ProcessErrorMsg: some error occured");
+  // TODO: push to GUI
 }
 
 void PtxChatClient::LogOut() {
   if (!socket_)
     return;
 
-  std::unique_ptr<struct ChatMsg> msg = std::make_unique<struct ChatMsg>();
+  auto msg = std::make_shared<ChatMsg>();
   strcpy(msg->hdr.from, nick_.c_str());
   msg->hdr.type = MsgType::UNREGISTER;
   msg->hdr.buf_len = 0;
-
-  SendMsgToServer(std::move(msg));
+  SendMsgToServer(msg);
 }
 
-void PtxChatClient::SendMsgToServer(std::unique_ptr<struct ChatMsg>&& msg) {
+void PtxChatClient::SendMsgToServer(std::shared_ptr<ChatMsg> msg) {
   if (send(socket_, &msg->hdr, sizeof(msg->hdr), 0) < 0) {
-    perror("SendMsg: send ChatMsgHdr");
+    logger_->log(spdlog::level::err, "SendMsgToServer: send(hdr) " + std::string(strerror(errno)));
     return;
   }
-  Log("SendMsg: sent hdr");
 
   if (!msg->hdr.buf_len)
     return;
 
   if (send(socket_, msg->buf, msg->hdr.buf_len, 0) < 0) {
-    perror("SendMsg: send buf");
+    logger_->log(spdlog::level::err, "SendMsgToServer: send(buf) " + std::string(strerror(errno)));
     return;
   }
-  Log("SendMsg: sent buf");
-  Log(reinterpret_cast<char*>(msg->buf));
-}
-
-void PtxChatClient::InitLog() {
-  chat_log_.open("client.log");
-}
-
-void PtxChatClient::Log(const std::string& text) {
-  std::lock_guard<std::mutex> lc_log(chat_log_mtx_);
-  char time_s[32];
-  time_t log_time = time(0);
-  struct tm log_local_time;
-  localtime_r(&log_time, &log_local_time);
-  strftime(time_s, 32, "[%d-%m-%Y %H:%M:%S:] ", &log_local_time);
-  std::thread::id t = std::this_thread::get_id();
-  chat_log_ << time_s << "[" << t << "] " << text << std::endl;
+  std::string text = std::string(reinterpret_cast<char*>(msg->buf));
+  logger_->log(spdlog::level::debug, "SendMsgToServer: send(buf) " + text);
 }
 
 bool PtxChatClient::SetIP_i(uint32_t ip) {
@@ -234,4 +250,4 @@ PtxChatClient::~PtxChatClient() {
   socket_ = 0;
 }
 
-}  // namespace ptxchat
+} // namespace ptxchat

@@ -70,27 +70,29 @@ class PtxChatClient : public GUIBackend {
   void SendMsg(const std::string& text);
 
  private:
-  uint32_t server_ip_;        /**< Chat server ip (default=127.0.0.1) */
-  uint16_t server_port_;      /**< Chat server port (default=1488) */
-  std::string nick_;          /**< Nickname on server if logged in */
-  std::ofstream chat_log_;
+  uint32_t server_ip_;                     /**< Chat server ip (default=127.0.0.1) */
+  uint16_t server_port_;                   /**< Chat server port (default=1488) */
+  std::string nick_;                       /**< Nickname on server if logged in */
   std::mutex chat_log_mtx_;
+  bool registered_;
 
   int socket_;
-  struct sockaddr_in serv_addr_;
+  sockaddr_in serv_addr_;
 
-  struct ThreadState msg_in_thread_;
-  struct ThreadState msg_out_thread_;
+  ThreadState msg_in_thread_;
+  ThreadState msg_out_thread_;
 
-  std::unique_ptr<SharedUDeque<struct ChatMsg>> msg_in_;
-  std::unique_ptr<SharedUDeque<struct ChatMsg>> msg_out_;
+  std::unique_ptr<SharedUDeque<ChatMsg>> msg_in_;
+  std::unique_ptr<SharedUDeque<ChatMsg>> msg_out_;
 
-  void SendMsgToServer(std::unique_ptr<struct ChatMsg>&& msg);
+  void SendMsgToServer(std::shared_ptr<ChatMsg> msg);
+  void ProcessRegisteredMsg(std::shared_ptr<ChatMsg> msg);
+  void ProcessUnregisteredMsg(std::shared_ptr<ChatMsg> msg);
+  void ProcessErrorMsg(std::shared_ptr<ChatMsg> msg);
+
 
   void ProcessReceiveMessages();
   void ProcessSendMessages();
-  void InitLog();
-  void Log(const std::string& text);
   void Stop();
 };
 

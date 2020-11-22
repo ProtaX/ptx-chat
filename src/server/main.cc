@@ -8,7 +8,7 @@
 #include <iostream>
 #include <vector>
 
-#include "PtxChatServer.h"
+#include "server.h"
 #include "Message.h"
 
 static ptxchat::PtxChatServer server;

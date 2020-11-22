@@ -7,8 +7,6 @@
 
 struct ThreadState {
   std::thread thread;
-  std::condition_variable cvar;
-  std::mutex mtx;
   volatile int stop;
 };
 
