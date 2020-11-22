@@ -1,5 +1,5 @@
 # ptx-chat
-Is a TCP chat using blocking sockets. For GUI I am using...
+Is a TCP chat using nonblocking sockets. For GUI I am using...
 
 # NanoGUI
 https://github.com/wjakob/nanogui
