@@ -33,7 +33,7 @@ void ServerStorage::AddPrivateMsg(std::shared_ptr<ChatMsg> msg) {
   << "Port" << (int)msg->hdr.src_port
   << "To"   << (const char*)msg->hdr.to
   << "Type" << (int)msg->hdr.type
-  << "Text" << (const char*)msg->buf
+  << "Data" << (const char*)msg->buf
   << bsoncxx::builder::stream::finalize;
   msg_coll_->insert_one(doc_val.view());
 }
@@ -47,7 +47,7 @@ void ServerStorage::AddPublicMsg(std::shared_ptr<ChatMsg> msg) {
   << "IP"   << (int)msg->hdr.src_ip
   << "Port" << (int)msg->hdr.src_port
   << "Type" << (int)msg->hdr.type
-  << "Text" << (const char*)msg->buf
+  << "Data" << (const char*)msg->buf
   << bsoncxx::builder::stream::finalize;
   msg_coll_->insert_one(doc_val.view());
 }

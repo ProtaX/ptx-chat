@@ -16,6 +16,7 @@
 #include "Threads.h"
 #include "PtxGuiBackend.h"
 #include "SharedUDeque.h"
+#include "client_storage.h"
 
 namespace ptxchat {
 
@@ -75,6 +76,7 @@ class PtxChatClient : public GUIBackend {
   std::string nick_;                       /**< Nickname on server if logged in */
   std::mutex chat_log_mtx_;
   bool registered_;
+  std::unique_ptr<ClientStorage> storage_;
 
   int socket_;
   sockaddr_in serv_addr_;
@@ -89,11 +91,13 @@ class PtxChatClient : public GUIBackend {
   void ProcessRegisteredMsg(std::shared_ptr<ChatMsg> msg);
   void ProcessUnregisteredMsg(std::shared_ptr<ChatMsg> msg);
   void ProcessErrorMsg(std::shared_ptr<ChatMsg> msg);
+  void ProcessIncomingPublicMsg(std::shared_ptr<ChatMsg> msg);
+  void ProcessIncomingPrivateMsg(std::shared_ptr<ChatMsg> msg);
 
-
-  void ProcessReceiveMessages();
-  void ProcessSendMessages();
+  void ReceiveMessagesTask();
+  void SendMessagesTask();
   void Stop();
+  void InitStorage();
 };
 
 }  // namespace ptxchat

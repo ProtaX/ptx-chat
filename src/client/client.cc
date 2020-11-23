@@ -25,6 +25,7 @@ PtxChatClient::PtxChatClient() noexcept {
   msg_out_ = std::make_unique<SharedUDeque<ChatMsg>>();
   registered_ = false;
   InitRotatingLogger("PTX Client");
+  InitStorage();
 }
 
 PtxChatClient::PtxChatClient(const std::string& ip, uint16_t port) noexcept {
@@ -38,6 +39,7 @@ PtxChatClient::PtxChatClient(const std::string& ip, uint16_t port) noexcept {
   msg_out_ = std::make_unique<SharedUDeque<ChatMsg>>();
   registered_ = false;
   InitRotatingLogger("PTX Client");
+  InitStorage();
 }
 
 void PtxChatClient::LogIn(const std::string& nick) {
@@ -70,13 +72,19 @@ void PtxChatClient::LogIn(const std::string& nick) {
   /* Send sync message */
   SendMsgToServer(std::move(msg));
 
+  /* Load messages */
+  for (auto msg_p : storage_->GetPrivateMsgs(nick))
+    ProcessIncomingPrivateMsg(msg_p);
+  for (auto msg_p : storage_->GetPublicMsgs())
+    ProcessIncomingPublicMsg(msg_p);
+
   /* Handle messages async */
   msg_in_thread_.stop = 0;
-  msg_in_thread_.thread = std::thread(&PtxChatClient::ProcessReceiveMessages, this);
+  msg_in_thread_.thread = std::thread(&PtxChatClient::ReceiveMessagesTask, this);
   msg_in_thread_.thread.detach();
 
   msg_out_thread_.stop = 0;
-  msg_out_thread_.thread = std::thread(&PtxChatClient::ProcessSendMessages, this);
+  msg_out_thread_.thread = std::thread(&PtxChatClient::SendMessagesTask, this);
   msg_out_thread_.thread.detach();
 }
 
@@ -101,7 +109,7 @@ void PtxChatClient::SendMsgTo(const std::string& to, const std::string& text) {
   msg_out_->push_front(std::move(msg));
 }
 
-void PtxChatClient::ProcessSendMessages() {
+void PtxChatClient::SendMessagesTask() {
   while (!msg_out_thread_.stop) {
     std::unique_ptr<ChatMsg> msg = std::move(msg_out_->back());
     if (!msg)
@@ -111,18 +119,18 @@ void PtxChatClient::ProcessSendMessages() {
   }
 }
 
-void PtxChatClient::ProcessReceiveMessages() {
+void PtxChatClient::ReceiveMessagesTask() {
   while (!msg_in_thread_.stop) {
     std::this_thread::sleep_for(std::chrono::milliseconds(MSG_THREAD_SLEEP));
     uint8_t buf[sizeof(struct ChatMsgHdr) + MAX_MSG_BUFFER_SIZE];
     ssize_t bytes_in = recv(socket_, buf, sizeof(buf), 0);
     if (bytes_in < 0) {
-      logger_->log(spdlog::level::err, "ProcessReceiveMessages: recv() " + std::string(strerror(errno)));
+      logger_->log(spdlog::level::err, "ReceiveMessagesTask: recv() " + std::string(strerror(errno)));
       continue;
     }
     if (bytes_in == 0) {
       Stop();
-      logger_->log(spdlog::level::critical, "ProcessReceiveMessages: server disconnected");
+      logger_->log(spdlog::level::critical, "ReceiveMessagesTask: server disconnected");
       return; // TODO: reconnect
     }
 
@@ -135,15 +143,15 @@ void PtxChatClient::ProcessReceiveMessages() {
       msg->buf = reinterpret_cast<uint8_t*>(malloc(buf_len));
       memcpy(msg->buf, buf+sizeof(ChatMsgHdr), buf_len);
       std::string text = std::string(reinterpret_cast<char*>(msg->buf));
-      logger_->log(spdlog::level::debug, "ProcessReceiveMessages: received message from " + std::string(msg->hdr.from) + ": " + text);
+      logger_->log(spdlog::level::debug, "ReceiveMessagesTask: received message from " + std::string(msg->hdr.from) + ": " + text);
     }
 
     switch (msg->hdr.type) {
       case MsgType::PUBLIC_DATA:
-        PushGuiEvent(GuiEvType::PUBLIC_MSG, msg);
+        ProcessIncomingPublicMsg(msg);
         break;
       case MsgType::PRIVATE_DATA:
-        PushGuiEvent(GuiEvType::PRIVATE_MSG, msg);
+        ProcessIncomingPrivateMsg(msg);
         break;
       case MsgType::REGISTERED:
         ProcessRegisteredMsg(msg);
@@ -156,6 +164,14 @@ void PtxChatClient::ProcessReceiveMessages() {
         break;
     }
   }
+}
+
+void PtxChatClient::ProcessIncomingPublicMsg(std::shared_ptr<ChatMsg> msg) {
+  PushGuiEvent(GuiEvType::PUBLIC_MSG, msg);
+}
+
+void PtxChatClient::ProcessIncomingPrivateMsg(std::shared_ptr<ChatMsg> msg) {
+  PushGuiEvent(GuiEvType::PRIVATE_MSG, msg);
 }
 
 void PtxChatClient::ProcessRegisteredMsg(std::shared_ptr<ChatMsg> msg) {
@@ -182,12 +198,16 @@ void PtxChatClient::ProcessErrorMsg(std::shared_ptr<ChatMsg> msg) {
 void PtxChatClient::LogOut() {
   if (!socket_)
     return;
-
+  
   auto msg = std::make_shared<ChatMsg>();
   strcpy(msg->hdr.from, nick_.c_str());
   msg->hdr.type = MsgType::UNREGISTER;
   msg->hdr.buf_len = 0;
   SendMsgToServer(msg);
+  PushGuiEvent(GuiEvType::CLEAR, nullptr);
+  shutdown(socket_, SHUT_RD);
+  close(socket_);
+  socket_ = 0;
 }
 
 void PtxChatClient::SendMsgToServer(std::shared_ptr<ChatMsg> msg) {
@@ -241,13 +261,13 @@ void PtxChatClient::Stop() {
   msg_in_thread_.stop = 1;
 }
 
+void PtxChatClient::InitStorage() {
+  storage_ = std::make_unique<ClientStorage>();
+}
+
 PtxChatClient::~PtxChatClient() {
   Stop();
   LogOut();
-
-  shutdown(socket_, SHUT_RD);
-  close(socket_);
-  socket_ = 0;
 }
 
 } // namespace ptxchat

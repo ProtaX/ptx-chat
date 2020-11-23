@@ -44,6 +44,12 @@ void ProcessChatEvents(text_box_t pub, text_box_t priv) {
         snprintf(text, MAX_MSG_BUFFER_SIZE, "%s: %s\n", e->msg->hdr.from, e->msg->buf);
         target = &priv;
         break;
+      case GuiEvType::CLEAR:
+        for (size_t i = 0; i < chat_lines; ++i) {
+          pub[i]->setValue("");
+          priv[i]->setValue("");
+        }
+        continue;
       case GuiEvType::SRV_START:
       case GuiEvType::SRV_STOP:
       case GuiEvType::CLIENT_REG:
