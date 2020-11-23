@@ -1,5 +1,5 @@
-#ifndef CONNECTIONS_H_
-#define CONNECTIONS_H_
+#ifndef SERVER_CONNECTIONS_H_
+#define SERVER_CONNECTIONS_H_
 
 #include <sys/types.h>
 #include <sys/socket.h>
@@ -56,4 +56,4 @@ class Connection {
 
 } // namespace ptxchat
 
-#endif // CONNECTIONS_H_
+#endif // SERVER_CONNECTIONS_H_

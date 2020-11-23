@@ -1,5 +1,5 @@
-#ifndef CLIENT_H_
-#define CLIENT_H_
+#ifndef SERVER_CLIENT_H_
+#define SERVER_CLIENT_H_
 
 #include <stdint.h>
 #include <string.h>
@@ -46,4 +46,4 @@ class Client {
 
 }  // namespace ptxchat
 
-#endif // CLIENT_H_
+#endif // SERVER_CLIENT_H_

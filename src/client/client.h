@@ -1,5 +1,5 @@
-#ifndef PTXCHATCLIENT_H_
-#define PTXCHATCLIENT_H_
+#ifndef CLIENT_CLIENT_H_
+#define CLIENT_CLIENT_H_
 
 #include <stdint.h>
 #include <netinet/in.h>
@@ -98,4 +98,4 @@ class PtxChatClient : public GUIBackend {
 
 }  // namespace ptxchat
 
-#endif  // PTXCHATCLIENT_H_
+#endif  // CLIENT_CLIENT_H_

@@ -1,5 +1,5 @@
-#ifndef SERVER_LOG_H_
-#define SERVER_LOG_H_
+#ifndef CLIENT_LOG_H_
+#define CLIENT_LOG_H_
 
 #include <memory>
 #include <unistd.h>
@@ -30,4 +30,4 @@ inline void InitRotatingLogger(const std::string& name) {
 
 } // namespace ptxchat
 
-#endif // SERVER_LOG_H_
+#endif // CLIENT_LOG_H_

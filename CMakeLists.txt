@@ -20,6 +20,7 @@ include(cmake/StandardProjectSettings.cmake)
 # externals
 include(cmake/NanoGUI.cmake)
 include(cmake/spdlog.cmake)
+include(cmake/MongoDB.cmake)
 
 # Enable all warnings
 add_library(project_warnings INTERFACE)

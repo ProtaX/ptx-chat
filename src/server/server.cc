@@ -28,6 +28,7 @@ PtxChatServer::PtxChatServer() noexcept:
                             is_running_(false) {
   client_msgs_ = std::make_unique<SharedUDeque<struct ChatMsg>>();
   InitSocket();
+  InitStorage();
   InitRotatingLogger("PTX Server");
 }
 
@@ -40,6 +41,7 @@ PtxChatServer::PtxChatServer(uint32_t ip, uint16_t port) noexcept:
   port_ = port;
   client_msgs_ = std::make_unique<SharedUDeque<ChatMsg>>();
   InitSocket();
+  InitStorage();
   InitRotatingLogger("PTX Server");
 }
 
@@ -57,6 +59,7 @@ PtxChatServer::PtxChatServer(const std::string& ip, uint16_t port) noexcept:
   port_ = port;
   client_msgs_ = std::make_unique<SharedUDeque<ChatMsg>>();
   InitSocket();
+  InitStorage();
   InitRotatingLogger("PTX Server");
 }
 
@@ -336,6 +339,8 @@ void PtxChatServer::ProcessPrivateMsg(std::shared_ptr<ChatMsg> msg) {
 
   if (!SendMsgToClient(msg, to->second))
     client->GetConnection()->Status() = ConnStatus::ERROR;
+  else
+    storage_->AddPrivateMsg(msg);
 }
 
 void PtxChatServer::ProcessPublicMsg(std::shared_ptr<ChatMsg> msg) {
@@ -354,6 +359,7 @@ void PtxChatServer::ProcessPublicMsg(std::shared_ptr<ChatMsg> msg) {
   clients_mtx_.unlock();
 
   SendMsgToAll(msg);
+  storage_->AddPublicMsg(msg);
 }
 
 void PtxChatServer::ParseClientMsg(std::unique_ptr<ChatMsg>&& msg) {
@@ -461,16 +467,20 @@ void PtxChatServer::CloseConnection(int c) {
 }
 
 bool PtxChatServer::CheckPortRange(uint16_t port) {
-    if (port < 1024) {
-      std::cout << "Warning: port address is in system range. Consider using TCP port range." << std::endl;
-      return false;
-    }
-    if (port > 49151) {
-      std::cout << "Warning: port address is in UDP range. Consider using TCP port range." << std::endl;
-      return false;
-    }
-    return true;
+  if (port < 1024) {
+    std::cout << "Warning: port address is in system range. Consider using TCP port range." << std::endl;
+    return false;
   }
+  if (port > 49151) {
+    std::cout << "Warning: port address is in UDP range. Consider using TCP port range." << std::endl;
+    return false;
+  }
+  return true;
+}
+
+void PtxChatServer::InitStorage() {
+  storage_ = std::make_unique<ServerStorage>();
+}
 
 PtxChatServer::~PtxChatServer() {
   Finalize();

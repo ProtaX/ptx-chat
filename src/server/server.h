@@ -1,22 +1,20 @@
-#ifndef PTXCHATSERVER_H_
-#define PTXCHATSERVER_H_
+#ifndef SERVER_SERVER_H_
+#define SERVER_SERVER_H_
 
 #include <stdint.h>
 
 #include <thread>
 #include <mutex>
 #include <memory>
-#include <deque>
 #include <vector>
-#include <fstream>
-#include <iostream>
 #include <string>
 #include <unordered_map>
 
 #include "Threads.h"
-#include "client.h"
 #include "Message.h"
 #include "PtxGuiBackend.h"
+#include "client.h"
+#include "server_storage.h"
 
 namespace ptxchat {
 
@@ -51,7 +49,7 @@ class PtxChatServer: public GUIBackend {
   bool SetPort_s(const std::string& port);
 
   [[nodiscard]] uint32_t    GetIp_i() const { return ip_; }
-  [[nodiscard]] std::string GetIp_s() const { return std::to_string(ip_); }
+  [[nodiscard]] std::string GetIp_s() const { return std::to_string(ip_); }  // FIXME
   [[nodiscard]] uint16_t    GetPort() const { return port_; }
 
   /* Virtual because may be added derived class for tcp/udp server */
@@ -63,8 +61,9 @@ class PtxChatServer: public GUIBackend {
   int listen_q_len_;  /**< Max amount of clients in listen queue */
   int socket_;        /**< Server socket (blocking) */
   bool is_running_;   /**< True if server is running */
-  
   int epoll_fd_;
+
+  std::unique_ptr<ServerStorage> storage_;
 
   ThreadState accept_conn_thread_;                      /**< Accept client connections */
   ThreadState process_msg_thread_;                      /**< Process received messages */
@@ -76,6 +75,7 @@ class PtxChatServer: public GUIBackend {
   std::unordered_map<std::string, std::shared_ptr<Client>> clients_;
 
   void InitSocket();
+  void InitStorage();
   void Finalize();
 
   void AcceptClients();
@@ -91,7 +91,7 @@ class PtxChatServer: public GUIBackend {
   /**
    * Register and set nickname
    */
-  void ProcessRegMsg(std::shared_ptr<struct ChatMsg> msg);
+  void ProcessRegMsg(std::shared_ptr<ChatMsg> msg);
   /**
    * These functions are not under any mutex
    */
@@ -107,4 +107,4 @@ class PtxChatServer: public GUIBackend {
 
 }  // namespace ptxchat
 
-#endif  // PTXCHATSERVER_H_
+#endif  // SERVER_SERVER_H_
