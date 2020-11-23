@@ -25,8 +25,9 @@ enum class GuiEvType {
   CLIENT_UNREG,
   PUBLIC_MSG,
   PRIVATE_MSG,
-  SRV_START,    /**< msg can be nullptr */
-  SRV_STOP,     /**< msg can be nullptr */
+  SRV_START,
+  SRV_STOP,
+  CLEAR,
 };
 
 struct GuiEvent {
