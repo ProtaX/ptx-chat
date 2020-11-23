@@ -24,6 +24,8 @@ ServerStorage::ServerStorage() {
 }
 
 void ServerStorage::AddPrivateMsg(std::shared_ptr<ChatMsg> msg) {
+  if (!isConnected)
+    return;
   auto builder = document{};
   bsoncxx::document::value doc_val = builder
   << "From" << (const char*)msg->hdr.from
@@ -37,6 +39,8 @@ void ServerStorage::AddPrivateMsg(std::shared_ptr<ChatMsg> msg) {
 }
 
 void ServerStorage::AddPublicMsg(std::shared_ptr<ChatMsg> msg) {
+  if (!isConnected)
+    return;
   auto builder = document{};
   bsoncxx::document::value doc_val = builder
   << "From" << (const char*)msg->hdr.from
