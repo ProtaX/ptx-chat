@@ -15,6 +15,7 @@ Because its fast and also easy to use. In order to...
 git clone --recursive https://github.com/ProtaX/ptx-chat.git
 ```
 * Install spdlog
+* Install MongoDB C and CXX drivers
 * Install dependencies
 ```
 sudo apt-get install cmake xorg-dev libglu1-mesa-dev
