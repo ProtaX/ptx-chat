@@ -1,5 +1,5 @@
 # Disable building extras we won't need (pure C++ project)
-set(NANOGUI_BUILD_SHARED  ON)
+set(NANOGUI_BUILD_SHARED  OFF)
 set(NANOGUI_BUILD_EXAMPLE OFF CACHE BOOL " " FORCE)
 set(NANOGUI_BUILD_PYTHON  OFF CACHE BOOL " " FORCE)
 set(NANOGUI_INSTALL       OFF CACHE BOOL " " FORCE)
